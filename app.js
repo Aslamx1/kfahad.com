@@ -2153,22 +2153,67 @@ function openPaymentModal(planId){
 
       <div class="form-group">
         <label>Payment Method</label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" id="method-grid">
-          <div class="provider-opt selected" id="method-mobile-money" onclick="selectPaymentMethod('mobile-money','${planId}')" style="border:2px solid var(--pri);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:var(--pri-g);transition:all .2s">
-            <div style="font-size:1.5rem;margin-bottom:4px">📱</div>
-            <div style="font-weight:700;font-size:.88rem">Mobile Money</div>
-            <div style="font-size:.72rem;color:var(--muted);margin-top:2px">MTN or Airtel</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="method-grid">
+          <div class="provider-opt selected" id="method-instant" onclick="selectPaymentMethod('instant','${planId}')" style="border:2px solid var(--pri);border-radius:10px;padding:12px 6px;cursor:pointer;text-align:center;background:var(--pri-g);transition:all .2s">
+            <div style="font-size:1.3rem;margin-bottom:4px">⚡</div>
+            <div style="font-weight:700;font-size:.8rem">Instant MoMo</div>
+            <div style="font-size:.68rem;color:var(--muted);margin-top:2px">Phone Prompt</div>
           </div>
-          <div class="provider-opt" id="method-bank" onclick="selectPaymentMethod('bank','${planId}')" style="border:2px solid var(--border);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:transparent;transition:all .2s">
-            <div style="font-size:1.5rem;margin-bottom:4px">🏦</div>
-            <div style="font-weight:700;font-size:.88rem">Bank</div>
-            <div style="font-size:.72rem;color:var(--muted);margin-top:2px">Transfer or deposit</div>
+          <div class="provider-opt" id="method-direct" onclick="selectPaymentMethod('direct','${planId}')" style="border:2px solid var(--border);border-radius:10px;padding:12px 6px;cursor:pointer;text-align:center;background:transparent;transition:all .2s">
+            <div style="font-size:1.3rem;margin-bottom:4px">📱</div>
+            <div style="font-weight:700;font-size:.8rem">Direct Transfer</div>
+            <div style="font-size:.68rem;color:var(--muted);margin-top:2px">SMS Reference</div>
+          </div>
+          <div class="provider-opt" id="method-bank" onclick="selectPaymentMethod('bank','${planId}')" style="border:2px solid var(--border);border-radius:10px;padding:12px 6px;cursor:pointer;text-align:center;background:transparent;transition:all .2s">
+            <div style="font-size:1.3rem;margin-bottom:4px">🏦</div>
+            <div style="font-weight:700;font-size:.8rem">Bank Transfer</div>
+            <div style="font-size:.68rem;color:var(--muted);margin-top:2px">Manual Review</div>
           </div>
         </div>
       </div>
 
-      <div id="pay-method-mobile">
-        <!-- Direct Transfer Info Card -->
+      <!-- METHOD 1: INSTANT MOBILE MONEY (XYLE PAYMENTS PUSH PROMPT) -->
+      <div id="pay-method-instant">
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:12px;padding:14px;margin-bottom:16px;font-size:.85rem;line-height:1.6">
+          <div style="font-weight:700;color:var(--txt);margin-bottom:4px;display:flex;align-items:center;gap:6px">
+            <span>⚡ Automated Instant Payment (Real-Time)</span>
+          </div>
+          <div style="color:var(--muted);font-size:.8rem">
+            Enter your Mobile Money number below. When you click <strong>Pay</strong>, an instant payment prompt will appear on your phone. Simply enter your PIN to approve.
+          </div>
+        </div>
+
+        <!-- Provider Selection -->
+        <div class="form-group">
+          <label>Select Mobile Money Provider</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" id="provider-grid">
+            <div class="provider-opt selected" id="prov-MTN_UGANDA" onclick="selectProvider('MTN_UGANDA')" style="border:2px solid var(--pri);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:var(--pri-g);transition:all .2s">
+              <div style="font-size:1.5rem;margin-bottom:4px">📱</div>
+              <div style="font-weight:700;font-size:.88rem">MTN Mobile Money</div>
+              <div style="font-size:.72rem;color:var(--muted);margin-top:2px">077 / 078 / 076 numbers</div>
+            </div>
+            <div class="provider-opt" id="prov-AIRTEL_UGANDA" onclick="selectProvider('AIRTEL_UGANDA')" style="border:2px solid var(--border);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:transparent;transition:all .2s">
+              <div style="font-size:1.5rem;margin-bottom:4px">📲</div>
+              <div style="font-weight:700;font-size:.88rem">Airtel Money</div>
+              <div style="font-size:.72rem;color:var(--muted);margin-top:2px">070 / 075 / 074 numbers</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phone Number -->
+        <div class="form-group">
+          <label>Your Mobile Money Phone Number</label>
+          <div style="position:relative">
+            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.9rem;font-weight:600">+</span>
+            <input class="form-control" id="pay-phone" style="padding-left:28px" placeholder="256771234567" maxlength="15" oninput="validatePhone(this)"/>
+          </div>
+          <div style="font-size:.75rem;color:var(--muted);margin-top:5px">USSD prompt will be sent to this phone (e.g. 256702618396)</div>
+          <div id="phone-err" style="color:var(--danger);font-size:.78rem;margin-top:4px;display:none"></div>
+        </div>
+      </div>
+
+      <!-- METHOD 2: DIRECT TRANSFER (SMS REFERENCE) -->
+      <div id="pay-method-direct" style="display:none">
         <div style="background:linear-gradient(135deg,rgba(15,23,42,.96),rgba(30,41,59,.96));border:1px solid rgba(148,163,184,.18);border-radius:14px;padding:16px 18px;margin-bottom:16px;position:relative;overflow:hidden">
           <div style="position:absolute;inset:auto -40px -50px auto;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle,rgba(59,130,246,.18),transparent 70%)"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative">
@@ -2181,32 +2226,14 @@ function openPaymentModal(planId){
           </div>
         </div>
 
-        <!-- Provider Selection -->
-        <div class="form-group">
-          <label>Select Mobile Money Provider</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" id="provider-grid">
-            <div class="provider-opt selected" id="prov-MTN_UGANDA" onclick="selectProvider('MTN_UGANDA')" style="border:2px solid var(--pri);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:var(--pri-g);transition:all .2s">
-              <div style="font-size:1.5rem;margin-bottom:4px">📱</div>
-              <div style="font-weight:700;font-size:.88rem">MTN Mobile Money</div>
-              <div style="font-size:.72rem;color:var(--muted);margin-top:2px">07X / 077 / 078 numbers</div>
-            </div>
-            <div class="provider-opt" id="prov-AIRTEL_UGANDA" onclick="selectProvider('AIRTEL_UGANDA')" style="border:2px solid var(--border);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:center;background:transparent;transition:all .2s">
-              <div style="font-size:1.5rem;margin-bottom:4px">📲</div>
-              <div style="font-weight:700;font-size:.88rem">Airtel Money</div>
-              <div style="font-size:.72rem;color:var(--muted);margin-top:2px">070 / 075 numbers</div>
-            </div>
-          </div>
-        </div>
-
         <!-- Phone Number -->
         <div class="form-group">
-          <label>Your Phone Number</label>
+          <label>Sender Phone Number</label>
           <div style="position:relative">
             <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.9rem;font-weight:600">+</span>
-            <input class="form-control" id="pay-phone" style="padding-left:28px" placeholder="256771234567" maxlength="15" oninput="validatePhone(this)"/>
+            <input class="form-control" id="pay-direct-phone" style="padding-left:28px" placeholder="256771234567" maxlength="15" oninput="validatePhone(this)"/>
           </div>
-          <div style="font-size:.75rem;color:var(--muted);margin-top:5px">Number used to make the payment (e.g. 256702618396)</div>
-          <div id="phone-err" style="color:var(--danger);font-size:.78rem;margin-top:4px;display:none"></div>
+          <div style="font-size:.75rem;color:var(--muted);margin-top:5px">Number used to make the payment</div>
         </div>
 
         <!-- Transaction Reference / ID from SMS -->
@@ -2221,7 +2248,7 @@ function openPaymentModal(planId){
           <div style="color:var(--muted);line-height:1.7">
             1. Send <strong>${plan.price.toLocaleString()} UGX</strong> to <strong>+256 702 618 396</strong> (Kandeke Fahad)<br>
             2. Enter your Phone number & SMS Transaction ID above<br>
-            3. Click <strong>Submit Payment</strong> to confirm and activate ✅
+            3. Click <strong>Confirm Reference & Activate</strong> ✅
           </div>
         </div>
       </div>
@@ -2310,55 +2337,42 @@ function openPaymentModal(planId){
   `,`
     <button class="btn btn-outline" id="pay-cancel-btn" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" id="pay-submit-btn" onclick="submitSelectedPayment('${planId}')">
-      Confirm & Activate ${plan.price.toLocaleString()} UGX
+      ⚡ Pay & Prompt My Phone (${plan.price.toLocaleString()} UGX)
     </button>
   `);
-  // Set default selected provider
+  // Set default selected provider & method
   window._selectedProvider = 'MTN_UGANDA';
-  window._paymentMethod = 'mobile-money';
+  window._paymentMethod = 'instant';
 }
 
 window._selectedProvider = 'MTN_UGANDA';
-window._paymentMethod = 'mobile-money';
+window._paymentMethod = 'instant';
 
 function submitSelectedPayment(planId){
-  if((window._paymentMethod||'mobile-money')==='bank') return submitBankPayment(planId);
-  const momoRef=document.getElementById('pay-momo-ref')?.value.trim();
-  const phoneRaw=document.getElementById('pay-phone')?.value.trim().replace(/\D/g,'');
+  const method = window._paymentMethod || 'instant';
+  if(method === 'bank') return submitBankPayment(planId);
+  if(method === 'direct') return submitDirectMobilePayment(planId);
+  return submitXylePayment(planId);
+}
+
+function submitDirectMobilePayment(planId){
+  const plan=PLANS.find(p=>p.id===planId);
+  if(!plan) return;
+  const phoneRaw=(document.getElementById('pay-direct-phone')?.value||document.getElementById('pay-phone')?.value||'').trim().replace(/\D/g,'');
+  const reference=document.getElementById('pay-momo-ref')?.value.trim();
+  const provider=window._selectedProvider||'MTN_UGANDA';
 
   if(!phoneRaw||phoneRaw.length<9){
-    const err=document.getElementById('phone-err');
-    if(err){err.style.display='block';err.textContent='Please enter your Mobile Money phone number';}
-    toast('Enter your Mobile Money phone number','error');
+    toast('Please enter your Mobile Money phone number','error');
     return;
   }
-  if(!momoRef){
+  if(!reference){
     const refInput=document.getElementById('pay-momo-ref');
     if(refInput){
       refInput.style.border='2px solid var(--pri)';
       refInput.focus();
     }
     toast('Enter your Transaction Reference ID from your SMS','warn');
-    return;
-  }
-  return submitDirectMobilePayment(planId);
-}
-
-function submitDirectMobilePayment(planId){
-  const plan=PLANS.find(p=>p.id===planId);
-  if(!plan) return;
-  const phoneRaw=document.getElementById('pay-phone')?.value.trim().replace(/\D/g,'');
-  const reference=document.getElementById('pay-momo-ref')?.value.trim();
-  const provider=window._selectedProvider||'MTN_UGANDA';
-
-  if(!phoneRaw||phoneRaw.length<9){
-    const err=document.getElementById('phone-err');
-    if(err){err.style.display='block';err.textContent='Please enter your Mobile Money phone number';}
-    toast('Enter your Mobile Money phone number','error');
-    return;
-  }
-  if(!reference){
-    toast('Please enter your transaction ID / reference','error');
     return;
   }
 
@@ -2423,7 +2437,7 @@ function submitDirectMobilePayment(planId){
 
 function selectPaymentMethod(method,planId){
   window._paymentMethod = method;
-  ['mobile-money','bank'].forEach(id=>{
+  ['instant','direct','bank'].forEach(id=>{
     const card=document.getElementById('method-'+id);
     if(!card) return;
     if(id===method){
@@ -2434,14 +2448,18 @@ function selectPaymentMethod(method,planId){
       card.style.background='transparent';
     }
   });
-  const mobileBlock=document.getElementById('pay-method-mobile');
+  const instantBlock=document.getElementById('pay-method-instant');
+  const directBlock=document.getElementById('pay-method-direct');
   const bankBlock=document.getElementById('pay-method-bank');
-  if(mobileBlock) mobileBlock.style.display=method==='mobile-money'?'block':'none';
+  if(instantBlock) instantBlock.style.display=method==='instant'?'block':'none';
+  if(directBlock) directBlock.style.display=method==='direct'?'block':'none';
   if(bankBlock) bankBlock.style.display=method==='bank'?'block':'none';
   const btn=document.getElementById('pay-submit-btn');
   const plan=PLANS.find(p=>p.id===planId);
   if(btn&&plan){
-    btn.textContent=method==='bank'?'Submit Bank Payment':'Confirm & Activate '+plan.price.toLocaleString()+' UGX';
+    if(method==='instant') btn.textContent=`⚡ Pay & Prompt My Phone (${plan.price.toLocaleString()} UGX)`;
+    else if(method==='direct') btn.textContent=`Confirm Reference & Activate (${plan.price.toLocaleString()} UGX)`;
+    else btn.textContent='Submit Bank Payment';
   }
 }
 
@@ -2520,7 +2538,7 @@ async function submitXylePayment(planId){
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:left;font-size:.85rem;line-height:1.6">
             <div style="font-weight:700;color:var(--txt);margin-bottom:4px">Pay directly via Mobile Money:</div>
             <div>1. Send <strong>${plan.price.toLocaleString()} UGX</strong> to <strong>+256 702 618 396</strong> (Kandeke Fahad)</div>
-            <div>2. Enter your Transaction Reference ID below to confirm.</div>
+            <div>2. Click below to enter your Transaction Reference ID to confirm.</div>
           </div>
         `;
       } else {
@@ -2528,14 +2546,21 @@ async function submitXylePayment(planId){
       }
       if(cancelBtn){cancelBtn.style.display='inline-flex';cancelBtn.textContent='Close';}
       const footer=document.getElementById('modal-footer');
-      if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="openPaymentModal('${planId}')">Enter SMS Reference</button>`;
+      if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="selectPaymentMethod('direct','${planId}');showPayStep(1)">Enter SMS Reference</button>`;
       return;
     }
 
-    const txRef=depositData.data?.reference||depositData.data?.id;
+    const txRef=depositData.data?.reference||depositData.data?.id||depositData.reference||depositData.id||depositData.data?.transaction_ref;
     const txId=depositData.data?.id;
 
-    document.getElementById('pay-status-title').textContent='Waiting for Approval';
+    // Check if immediately completed
+    const initStatus = String(depositData.data?.status || depositData.status || '').toUpperCase();
+    if(initStatus === 'COMPLETED' || initStatus === 'SUCCESS' || initStatus === 'SUCCESSFUL' || initStatus === 'APPROVED'){
+      await onPaymentSuccess(plan, depositData.data || depositData, account, provider, planId);
+      return;
+    }
+
+    document.getElementById('pay-status-title').textContent='Waiting for Phone Approval';
     document.getElementById('pay-status-msg').textContent='📱 Check your phone and approve the '+( provider==='MTN_UGANDA'?'MTN':'Airtel')+' payment prompt';
     if(txRef) document.getElementById('pay-ref').textContent='Reference: '+txRef;
 
@@ -2555,24 +2580,25 @@ async function submitXylePayment(planId){
         showPayStep(4);
         document.getElementById('pay-fail-msg').textContent='Payment timed out. If you sent money, please submit your SMS transaction reference.';
         const footer=document.getElementById('modal-footer');
-        if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="openPaymentModal('${planId}')">Enter SMS Reference</button>`;
+        if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="selectPaymentMethod('direct','${planId}');showPayStep(1)">Enter SMS Reference</button>`;
         return;
       }
 
       try {
         const ref=txRef||txId;
         const statusData=await postDataApi({ action:'xyle_check_status', data:{ ref } }).catch(()=>({}));
-        const status=statusData.data?.status||statusData.status;
+        const rawStatus = statusData.data?.status || statusData.status || statusData.data?.transaction_status || '';
+        const s = String(rawStatus).toUpperCase();
 
-        if(status==='COMPLETED'||status==='SUCCESS'){
+        if(s === 'COMPLETED' || s === 'SUCCESS' || s === 'SUCCESSFUL' || s === 'APPROVED'){
           clearInterval(pollTimer);
-          await onPaymentSuccess(plan,statusData.data||depositData.data,account,provider,planId);
-        } else if(status==='FAILED'||status==='CANCELLED'||status==='DECLINED'){
+          await onPaymentSuccess(plan, statusData.data || statusData || depositData.data, account, provider, planId);
+        } else if(s === 'FAILED' || s === 'CANCELLED' || s === 'DECLINED' || s === 'REJECTED' || s === 'EXPIRED'){
           clearInterval(pollTimer);
           showPayStep(4);
-          document.getElementById('pay-fail-msg').textContent='Payment was '+status.toLowerCase()+'. Please try again or submit your SMS reference.';
+          document.getElementById('pay-fail-msg').textContent='Payment was '+rawStatus.toLowerCase()+'. Please try again or submit your SMS reference.';
           const footer=document.getElementById('modal-footer');
-          if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="openPaymentModal('${planId}')">Enter SMS Reference</button>`;
+          if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="selectPaymentMethod('direct','${planId}');showPayStep(1)">Enter SMS Reference</button>`;
         }
       } catch(pollErr){
         console.warn('Poll error:',pollErr);
@@ -2583,7 +2609,7 @@ async function submitXylePayment(planId){
     showPayStep(4);
     document.getElementById('pay-fail-msg').textContent='Network error: '+err.message+'. You can also send directly to +256 702 618 396 and enter your reference.';
     const footer=document.getElementById('modal-footer');
-    if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="openPaymentModal('${planId}')">Enter SMS Reference</button>`;
+    if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="selectPaymentMethod('direct','${planId}');showPayStep(1)">Enter SMS Reference</button>`;
   }
 }
 
@@ -2686,14 +2712,19 @@ async function onPaymentSuccess(plan,txData,account,provider,planId){
     phoneNumber:account,
     provider,
     status:'Approved',
-    reference:txData?.reference||('XYLE-'+uid().slice(0,8).toUpperCase()),
-    xyleId:txData?.id||'',
-    netAmount:txData?.netAmount||plan.price,
+    reference:txData?.reference||txData?.transaction_ref||('XYLE-'+uid().slice(0,8).toUpperCase()),
+    xyleId:txData?.id||txData?.provider_ref||'',
+    netAmount:txData?.netAmount||txData?.amount||plan.price,
     date:new Date().toISOString(),
     createdAt:Date.now()
   };
   payments.push(payRecord);
   DB.set('payments',payments);
+
+  // Sync to backend database
+  postDataApi({action:'create',table:'payments',data:payRecord}).catch(err=>{
+    console.warn('Backend payment sync note:',err.message);
+  });
 
   // Send welcome notification
   createNotification({

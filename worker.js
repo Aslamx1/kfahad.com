@@ -436,7 +436,6 @@ async function handleMessages(request, env, supabase) {
 }
 
 async function handleData(request, env, supabase) {
-  if (!supabase) return json(request, env, 503, { error: "Service temporarily unavailable." });
   let table;
   let action;
   let id;
@@ -462,15 +461,32 @@ async function handleData(request, env, supabase) {
           needsManualPayment: true
         });
       }
-      const baseUrl = env.XYLEPAYMENTS_BASE_URL || "https://api.xylepayments.com/api/v1/client";
+      let baseUrl = env.XYLEPAYMENTS_BASE_URL;
+      if (!baseUrl) {
+        baseUrl = secretKey.startsWith("xk_sb_")
+          ? "https://api.xylepayments.com/sandbox/api/v1/client"
+          : "https://api.xylepayments.com/api/v1/client";
+      }
+      baseUrl = baseUrl.replace(/\/+$/, "");
+
       let endpoint;
       let options = { headers: { "x-api-key": secretKey } };
       if (action === "xyle_deposit" || action === "xyle_withdrawal") {
-        const provider = sanitize(data.provider, 40);
-        const account = sanitize(data.account, 40);
-        const amount = Number(data.amount);
+        const rawProv = String(data.provider || parsed.data.provider || "");
+        let provider = sanitize(rawProv, 40);
+        if (rawProv.toUpperCase().includes("AIRTEL")) {
+          provider = "AIRTEL_UGANDA";
+        } else if (rawProv.toUpperCase().includes("MTN")) {
+          provider = "MTN_UGANDA";
+        }
+
+        let account = String(data.account || parsed.data.account || "").replace(/\D/g, "");
+        if (account.startsWith("0") && account.length === 10) account = "256" + account.slice(1);
+        if (account.length === 9 && !account.startsWith("256")) account = "256" + account;
+
+        const amount = Number(data.amount !== undefined ? data.amount : parsed.data.amount);
         if (!provider || !account || !Number.isFinite(amount) || amount <= 0) {
-          return json(request, env, 400, { success: false, error: "Invalid payment details." });
+          return json(request, env, 400, { success: false, error: "Invalid payment details. Valid phone number and amount required." });
         }
         endpoint = action === "xyle_deposit" ? "deposit" : "withdrawal";
         options = {
@@ -479,13 +495,15 @@ async function handleData(request, env, supabase) {
           body: JSON.stringify({ account, amount, provider }),
         };
       } else if (action === "xyle_transactions") {
-        const page = Math.max(1, Number(data.page) || 1);
-        const limit = Math.min(100, Math.max(1, Number(data.limit) || 10));
+        const page = Math.max(1, Number(data.page || parsed.data.page) || 1);
+        const limit = Math.min(100, Math.max(1, Number(data.limit || parsed.data.limit) || 10));
         endpoint = `transactions?page=${page}&limit=${limit}`;
       } else if (action === "xyle_check_status") {
-        const ref = sanitize(data.ref, 120);
+        const ref = sanitize(data.ref || parsed.data.ref || data.reference || parsed.data.reference || data.id || parsed.data.id, 120);
         if (!ref) return json(request, env, 400, { success: false, error: "Transaction reference is required." });
         endpoint = `checkTransactionStatus/${encodeURIComponent(ref)}`;
+      } else if (action === "xyle_balance") {
+        endpoint = "balance";
       } else {
         return json(request, env, 400, { success: false, error: "Invalid action." });
       }
