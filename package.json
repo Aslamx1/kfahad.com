@@ -1,0 +1,19 @@
+{
+  "name": "kfahad-netlify-aslam",
+  "version": "1.0.0",
+  "description": "## Files in this package ``` kfahad-academy/ ├── index.html                    ← Main HTML page ├── styles.css                    ← All styles ├── app.js                        ← All app logic ├── netlify.toml                  ← Netlify config └── netlify/     └── functions/         └── chat.js               ← AI bot serverless function ```",
+  "main": "app.js",
+  "scripts": {
+    "build": "echo 'Static site - no build step required'",
+    "test": "echo \"No tests configured\"",
+    "check:live": "node --check app.js && node --check netlify/functions/auth.js && node --check netlify/functions/chat.js && node --check netlify/functions/data.js && node --check netlify/functions/messages.js && node --check netlify/functions/upload-profile-image.js && node --check netlify/functions/upload-course-video.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@netlify/blobs": "^10.7.4",
+    "@supabase/supabase-js": "^2.39.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

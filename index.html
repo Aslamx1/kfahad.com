@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>KFAHAD Academy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+
+<!-- ===KFAHAD STYLESHEET=== -->
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+
+
+<!-- ===HEADER=== -->
+<header id="site-header">
+<div class="container">
+<div class="nav-wrap">
+  <span class="logo-text" onclick="goHome()">
+    <img class="logo-mark" src="KF%20LOGO.png" alt="KFAHAD Academy logo"/>
+    <span class="logo-wordmark">
+      <span class="logo-kfahad">KFAHAD</span>
+      <span class="logo-academy">Academy</span>
+    </span>
+  </span>
+  <nav class="nav-links" id="main-nav">
+    <a href="#home" onclick="showPublicPage('home')" id="nav-home" class="active">Home</a>
+    <div class="dropdown nav-dropdown">
+      <a href="#courses-public" onclick="toggleDropdown('courses-dd')" id="nav-courses">Courses</a>
+      <div class="dropdown-menu nav-courses-menu" id="courses-dd"></div>
+    </div>
+    <a href="#pricing-page" onclick="showPublicPage('pricing-page')">Pricing</a>
+    <a href="#about-page" onclick="showPublicPage('about-page')">About</a>
+    <a href="#blog-page" onclick="showPublicPage('blog-page')">Blog</a>
+    <a href="#contact-page" onclick="showPublicPage('contact-page')">Contact</a>
+  </nav>
+  
+  <div class="nav-actions" id="nav-actions">
+    <!-- filled by JS -->
+  </div>
+  <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode" aria-label="Toggle theme">
+    <svg class="sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    <svg class="moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+  </button>
+  <button class="hamburger" onclick="toggleMobile()" aria-label="Menu">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+  </button>
+</div>
+</div>
+<div class="mobile-menu" id="mobile-menu"></div>
+</header>
+
+<!-- ===PAGES CONTAINER=== -->
+<div id="pages-root"></div>
+
+<!-- ===TOAST=== -->
+<div class="toast-container" id="toast-container"></div>
+<div id="theme-ripple" class="theme-ripple"></div>
+
+<!-- ===AI BOT BUTTON=== -->
+<button id="ai-bot-btn" class="hide-in-chat" onclick="toggleAIBot()" title="Ask KFAHAD AI Tutor" aria-label="Open AI tutor">
+  <div class="ai-bot-pulse"></div>
+  <div id="ai-bot-notif" aria-hidden="true"></div>
+  <img id="ai-bot-img" src="robot-ai.png" alt="AI Bot" style="width:100%;height:100%;object-fit:cover;border-radius:50%">
+</button>
+
+<!-- ===FLOATING ROBOT (VISIBLE EVERYWHERE)=== -->
+<div id="robot-float" class="hide-in-chat" onclick="toggleAIBot()" title="Chat with AI Bot">
+  <img src="robot-ai.png" alt="AI Bot" onerror="this.parentElement.style.display='none'"/>
+</div>
+
+<!-- ===AI BOT PANEL=== -->
+<div id="ai-bot-panel">
+  <div class="ai-bot-header">
+    <div class="ai-bot-avatar"><img src="robot-ai.png" alt="AI Bot" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>
+    <div class="ai-bot-info">
+      <h4>KFAHAD AI Tutor</h4>
+      <p><span class="ai-bot-status"></span> Online &amp; ready to help</p>
+    </div>
+    <button class="ai-bot-close" onclick="toggleAIBot()" aria-label="Close">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="ai-bot-messages" id="ai-messages"></div>
+  <div class="ai-chips" id="ai-chips"></div>
+  <div class="ai-bot-input-row">
+    <input id="ai-input" placeholder="Ask me anything…" autocomplete="off" onkeydown="if(event.key==='Enter')sendAIMessage()"/>
+    <button id="ai-send" onclick="sendAIMessage()" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ===MODAL=== -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModalOnOverlay(event)">
+  <div class="modal" id="modal-box">
+    <div class="modal-header"><h3 id="modal-title"></h3><button class="close-btn" onclick="closeModal()"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+
+<!-- ===KFAHAD APPLICATION SCRIPT=== -->
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+# ================================================================
+#  KFAHAD Academy — Netlify Configuration
+# ================================================================
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+# API redirects - must come before SPA fallback
+[[redirects]]
+  from = "/api/chat"
+  to   = "/.netlify/functions/chat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/messages"
+  to   = "/.netlify/functions/messages"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth"
+  to   = "/.netlify/functions/auth"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/upload-profile-image"
+  to   = "/.netlify/functions/upload-profile-image"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/upload-course-video"
+  to   = "/.netlify/functions/upload-course-video"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/data"
+  to   = "/.netlify/functions/data"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/forgot-password"
+  to   = "/.netlify/functions/forgot-password"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/reset-password"
+  to   = "/.netlify/functions/reset-password"
+  status = 200
+  force = true
+
+# SPA fallback — serve index.html for any unmatched route
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200
+
+[functions]
+  node_bundler = "esbuild"
