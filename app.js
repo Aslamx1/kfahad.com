@@ -15,20 +15,20 @@ const DB = {
   init(){
     if(!this.get('users')){
       this.set('users',[
-        {id:'admin-kfahad',name:'Kandeke Fahad',email:'kandekefahad111@gmail.com',password:'Admin123',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',subscriptionExpiresAt:null,createdAt:Date.now()},
+        {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',subscriptionExpiresAt:null,createdAt:Date.now()},
         {id:uid(),name:'Alex Johnson',email:'student@test.com',password:'test123',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2}
       ]);
     }
     const users = this.get('users')||[];
     const adminCandidates = users.filter(user=>user.role==='admin');
     const primaryAdmin = adminCandidates.find(user=>user.id==='admin-kfahad')
-      || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='kandekefahad111@gmail.com')
+      || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin.kfahad@gmail.com')
       || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin@kfahad.com');
     if(primaryAdmin){
       primaryAdmin.id = 'admin-kfahad';
       primaryAdmin.name = 'Kandeke Fahad';
-      primaryAdmin.email = 'kandekefahad111@gmail.com';
-      primaryAdmin.password = primaryAdmin.password || 'Admin123';
+      primaryAdmin.email = 'Admin.kfahad@gmail.com';
+      delete primaryAdmin.password;
       primaryAdmin.role = 'admin';
       primaryAdmin.bio = primaryAdmin.bio || 'Founder & CEO of KFAHAD Academy';
       primaryAdmin.phoneNumber = primaryAdmin.phoneNumber || '+256702618396';
@@ -40,7 +40,7 @@ const DB = {
           ...storedCurrentUser,
           id:'admin-kfahad',
           name:'Kandeke Fahad',
-          email:'kandekefahad111@gmail.com',
+          email:'Admin.kfahad@gmail.com',
           role:'admin'
         });
       }
@@ -1024,7 +1024,7 @@ function isHumanChatMessage(message={}){
 }
 function getPrimaryAdminUser(users=DB.get('users')||[]){
   return users.find(user=>user.role==='admin' && user.id==='admin-kfahad')
-    || users.find(user=>user.role==='admin' && String(user.email||'').toLowerCase()==='kandekefahad111@gmail.com')
+    || users.find(user=>user.role==='admin' && String(user.email||'').toLowerCase()==='admin.kfahad@gmail.com')
     || users.find(user=>user.role==='admin')
     || null;
 }
@@ -3352,7 +3352,7 @@ function renderContactPage(){
     </div></div>
     <div>
       <h2 style="font-family:var(--font-h);font-size:1.5rem;font-weight:700;margin-bottom:24px">Our Information</h2>
-      <div class="contact-info-item"><div class="contact-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><a href="mailto:kandekefahad111@gmail.com">kandekefahad111@gmail.com</a></div>
+      <div class="contact-info-item"><div class="contact-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><a href="mailto:Admin.kfahad@gmail.com">Admin.kfahad@gmail.com</a></div>
       <div class="contact-info-item"><div class="contact-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.67A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.08 6.08l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div><span>+256 702618396</span></div>
       <div class="contact-info-item"><div class="contact-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div><span>Kfahad Academy, Uganda</span></div>
       <div class="contact-info-item"><div class="contact-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 00-7.07 17.07A10 10 0 1012 2zm1 14.59V20h-2v-3.41A5.01 5.01 0 017 11h2a3 3 0 006 0h2a5.01 5.01 0 01-3 4.59z"/></svg></div>
