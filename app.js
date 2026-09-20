@@ -13,41 +13,24 @@ const DB = {
   set(key,val){localStorage.setItem('kfa_'+key,JSON.stringify(val))},
   del(key){localStorage.removeItem('kfa_'+key)},
   init(){
-    if(!this.get('users')){
-      this.set('users',[
-        {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',username:'kfahad',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',subscriptionExpiresAt:null,createdAt:Date.now()},
-        {id:'student-alex',name:'Alex Johnson',email:'student@kfahad.com',username:'student',password:'Student.login.',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2},
-        {id:'lecturer-musa',name:'Dr. Musa Ssekandi',email:'lecturer@kfahad.com',username:'lecturer',password:'Lecturer.login.',role:'instructor',avatarUrl:'https://i.pravatar.cc/150?u=l1',bio:'Senior Lecturer at KFAHAD Academy',phoneNumber:'',subscriptionExpiresAt:null,createdAt:Date.now()-864e5*10}
-      ]);
+    const primaryAdmin = {
+      id:'admin-kfahad',
+      name:'Kandeke Fahad',
+      email:'Admin.kfahad@gmail.com',
+      username:'kfahad',
+      role:'admin',
+      avatarUrl:'',
+      bio:'Founder & CEO of KFAHAD Academy',
+      phoneNumber:'+256702618396',
+      createdAt:Date.now()
+    };
+    let users = this.get('users')||[];
+    // Filter out any mock/fake seeded users so only real registered users exist
+    users = users.filter(user => user && user.id !== 'student-alex' && user.id !== 'lecturer-musa' && String(user.email||'').toLowerCase() !== 'student@kfahad.com' && String(user.email||'').toLowerCase() !== 'lecturer@kfahad.com');
+    if(!users.some(u => u.id === 'admin-kfahad' || String(u.email||'').toLowerCase() === 'admin.kfahad@gmail.com')){
+      users.unshift(primaryAdmin);
     }
-    const users = this.get('users')||[];
-    const adminCandidates = users.filter(user=>user.role==='admin');
-    let primaryAdmin = adminCandidates.find(user=>user.id==='admin-kfahad')
-      || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin.kfahad@gmail.com')
-      || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin@kfahad.com');
-    if(!primaryAdmin){
-      primaryAdmin = {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',username:'kfahad',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',createdAt:Date.now()};
-      users.push(primaryAdmin);
-    }
-    primaryAdmin.id = 'admin-kfahad';
-    primaryAdmin.name = 'Kandeke Fahad';
-    primaryAdmin.email = 'Admin.kfahad@gmail.com';
-    primaryAdmin.username = 'kfahad';
-    delete primaryAdmin.password;
-    primaryAdmin.role = 'admin';
-    primaryAdmin.bio = primaryAdmin.bio || 'Founder & CEO of KFAHAD Academy';
-    primaryAdmin.phoneNumber = primaryAdmin.phoneNumber || '+256702618396';
-    
-    // Ensure student and lecturer exist
-    if(!users.some(u=>String(u.email||'').toLowerCase()==='student@kfahad.com'||String(u.email||'').toLowerCase()==='student@test.com')){
-      users.push({id:'student-alex',name:'Alex Johnson',email:'student@kfahad.com',username:'student',password:'Student.login.',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2});
-    }
-    if(!users.some(u=>String(u.email||'').toLowerCase()==='lecturer@kfahad.com')){
-      users.push({id:'lecturer-musa',name:'Dr. Musa Ssekandi',email:'lecturer@kfahad.com',username:'lecturer',password:'Lecturer.login.',role:'instructor',avatarUrl:'https://i.pravatar.cc/150?u=l1',bio:'Senior Lecturer at KFAHAD Academy',phoneNumber:'',subscriptionExpiresAt:null,createdAt:Date.now()-864e5*10});
-    }
-
-    const dedupedUsers = users.filter(user=>user===primaryAdmin || user.role!=='admin' || user.id==='admin-kfahad');
-    this.set('users', dedupedUsers);
+    this.set('users', users);
     const storedCurrentUser = this.get('currentUser');
     if(storedCurrentUser?.role==='admin'){
       this.set('currentUser',{
@@ -3061,26 +3044,6 @@ async function doLogin(){
           bio: 'Founder & CEO of KFAHAD Academy',
           phoneNumber: '+256702618396'
         };
-      } else if((normalizedEmail === 'student@kfahad.com' || normalizedEmail === 'student@test.com' || normalizedEmail === 'student') && (pw === 'Student.login.' || pw === 'test123')){
-        fallbackUser = {
-          id: 'student-alex',
-          name: 'Alex Johnson',
-          email: 'student@kfahad.com',
-          username: 'student',
-          role: 'student',
-          avatarUrl: 'https://i.pravatar.cc/150?u=s1',
-          bio: 'Eager learner'
-        };
-      } else if((normalizedEmail === 'lecturer@kfahad.com' || normalizedEmail === 'lecturer@test.com' || normalizedEmail === 'lecturer') && (pw === 'Lecturer.login.' || pw === 'test123')){
-        fallbackUser = {
-          id: 'lecturer-musa',
-          name: 'Dr. Musa Ssekandi',
-          email: 'lecturer@kfahad.com',
-          username: 'lecturer',
-          role: 'instructor',
-          avatarUrl: 'https://i.pravatar.cc/150?u=l1',
-          bio: 'Senior Lecturer at KFAHAD Academy'
-        };
       }
 
       if(fallbackUser){
@@ -3088,7 +3051,7 @@ async function doLogin(){
         const csrf = uid();
         const user = setAuthenticatedUser(fallbackUser, token, csrf);
         toast(`Welcome back, ${user.name.split(' ')[0]}! 👋`, 'success');
-        showDashboard(user.role === 'student' ? 'my-learning' : 'overview');
+        showDashboard('overview');
         return;
       }
     }
@@ -5133,15 +5096,21 @@ function deleteStudentReview(reviewId){
   toast('Review removed','success');
   showAdmin('reviews');
 }
-function updateUserRole(userId,role){
+async function updateUserRole(userId,role){
   const users=DB.get('users')||[];
   const u=users.find(u=>u.id===userId);if(!u)return;
   u.role=role;DB.set('users',users);
-  toast(`Role updated to ${role}`,'success');
   if(currentUser.id===userId){currentUser.role=role;DB.set('currentUser',currentUser)}
+  toast(`Role updated to ${role}`,'success');
   showAdmin('users');
+  try {
+    await postAuthApi({action:'admin_update_user', userId, updates:{role}}, {token:currentUser?.authToken});
+    await syncUsersFromServer({rerender:true});
+  } catch(e) {
+    console.warn('Sync role error:', e.message);
+  }
 }
-function extendSubscription(userId){
+async function extendSubscription(userId){
   const users=DB.get('users')||[];
   const u=users.find(u=>u.id===userId);if(!u)return;
   const exp=u.subscriptionExpiresAt&&new Date(u.subscriptionExpiresAt)>new Date()?new Date(u.subscriptionExpiresAt):new Date();
@@ -5150,13 +5119,25 @@ function extendSubscription(userId){
   DB.set('users',users);
   toast('Subscription extended by 30 days','success');
   showAdmin('users');
+  try {
+    await postAuthApi({action:'admin_update_user', userId, updates:{subscriptionExpiresAt:u.subscriptionExpiresAt}}, {token:currentUser?.authToken});
+    await syncUsersFromServer({rerender:true});
+  } catch(e) {
+    console.warn('Sync sub error:', e.message);
+  }
 }
-function deleteUser(userId){
+async function deleteUser(userId){
   if(!confirm('Delete this user?')) return;
   const users=(DB.get('users')||[]).filter(u=>u.id!==userId);
   DB.set('users',users);
   toast('User deleted','success');
   showAdmin('users');
+  try {
+    await postAuthApi({action:'admin_delete_user', userId}, {token:currentUser?.authToken});
+    await syncUsersFromServer({rerender:true});
+  } catch(e) {
+    console.warn('Delete user server error:', e.message);
+  }
 }
 function openAddUserModal(){
   openModal('Add New User',`
@@ -5174,7 +5155,7 @@ function openAddUserModal(){
   <div class="form-group"><label>Role</label><select class="form-control" id="au-role"><option>student</option><option>guest</option><option>instructor</option><option>admin</option></select></div>
   `,`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="addUser()">Create User</button>`);
 }
-function addUser(){
+async function addUser(){
   const name=document.getElementById('au-name')?.value.trim();
   const email=document.getElementById('au-email')?.value.trim();
   const pw=document.getElementById('au-pw')?.value;
@@ -5183,9 +5164,15 @@ function addUser(){
   if(!name||!email||!pw){toast('All fields required','error');return}
   const users=DB.get('users')||[];
   if(users.find(u=>u.email===email)){toast('Email already exists','error');return}
-  users.push({id:uid(),name,email,password:pw,role,avatarUrl,bio:'',phoneNumber:'',subscriptionExpiresAt:null,createdAt:Date.now(),lastLoginAt:null,signInCount:0,createdByAdmin:true});
-  DB.set('users',users);
-  closeModal(); toast('User created!','success'); showAdmin('users');
+  try {
+    await postAuthApi({action:'register_direct', name, email, password:pw, role, avatarUrl});
+    toast('User created in database!','success');
+    closeModal();
+    await syncUsersFromServer({rerender:true});
+    showAdmin('users');
+  } catch (err) {
+    toast(err.message || 'Failed to create user', 'error');
+  }
 }
 
 function renderAdminPayments(){

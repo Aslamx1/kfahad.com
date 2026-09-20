@@ -147,32 +147,6 @@ const SYSTEM_USERS = [
     avatarUrl: "",
     aliases: ["admin.kfahad@gmail.com", "admin@kfahad.com", "kfahad"],
   },
-  {
-    id: "student-alex",
-    name: "Alex Johnson",
-    email: "student@kfahad.com",
-    username: "student",
-    role: "student",
-    password: "Student.login.",
-    altPassword: "test123",
-    phoneNumber: "",
-    bio: "Eager learner",
-    avatarUrl: "https://i.pravatar.cc/150?u=s1",
-    aliases: ["student@kfahad.com", "student@test.com", "student"],
-  },
-  {
-    id: "lecturer-musa",
-    name: "Dr. Musa Ssekandi",
-    email: "lecturer@kfahad.com",
-    username: "lecturer",
-    role: "instructor",
-    password: "Lecturer.login.",
-    altPassword: "test123",
-    phoneNumber: "",
-    bio: "Senior Lecturer at KFAHAD Academy",
-    avatarUrl: "https://i.pravatar.cc/150?u=l1",
-    aliases: ["lecturer@kfahad.com", "lecturer@test.com", "lecturer", "instructor"],
-  },
 ];
 
 async function createWorkerSession(user, env) {
@@ -723,8 +697,13 @@ async function handleAuth(request, env, supabase) {
 
   // 1. PUBLIC STATS
   if (action === "public_stats") {
-    let count = 142;
-    if (supabase) {
+    let count = SYSTEM_USERS.length;
+    if (env.DB) {
+      try {
+        const row = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE id != 'admin-kfahad'").first();
+        count = Number(row?.total || 0) + SYSTEM_USERS.length;
+      } catch {}
+    } else if (supabase) {
       try {
         const { data, error } = await supabase.from("users").select("id");
         if (!error && Array.isArray(data)) count = data.length + SYSTEM_USERS.length;
@@ -751,7 +730,7 @@ async function handleAuth(request, env, supabase) {
       return json(request, env, 400, { error: "Email/username and password are required." });
     }
 
-    // Check system users first (Admin, Student, Lecturer)
+    // Check system users first (Admin)
     const sysUser = SYSTEM_USERS.find(
       (u) =>
         u.email.toLowerCase() === rawEmail ||
@@ -775,44 +754,44 @@ async function handleAuth(request, env, supabase) {
       const safeUser = buildSafeUserObj(sysUser);
       const { token, csrfToken } = await createWorkerSession(safeUser, env);
 
-      if (supabase) {
-        supabase.from("users").upsert({
-          id: sysUser.id,
-          name: sysUser.name,
-          email: sysUser.email,
-          username: sysUser.username,
-          role: sysUser.role,
-          phone_number: sysUser.phoneNumber,
-          bio: sysUser.bio,
-          last_login_at: Date.now()
-        }, { onConflict: "email" }).catch(() => {});
+      if (env.DB) {
+        env.DB.prepare("INSERT OR REPLACE INTO users (id, name, email, username, password_hash, role, phone_number, bio, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(sysUser.id, sysUser.name, sysUser.email, sysUser.username, "sys", sysUser.role, sysUser.phoneNumber, sysUser.bio, Date.now(), Date.now())
+          .run().catch(() => {});
       }
 
       return json(request, env, 200, { user: safeUser, token, csrfToken });
     }
 
-    // Check Supabase if available
-    if (supabase) {
+    // Check Cloudflare D1 SQL database
+    if (env.DB) {
       try {
-        const { data: dbUser, error } = await supabase
-          .from("users")
-          .select("*")
-          .or(`email.eq.${rawEmail},username.eq.${rawEmail}`)
-          .maybeSingle();
+        const dbUser = await env.DB.prepare(
+          "SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)"
+        ).bind(rawEmail, rawEmail).first();
 
         if (dbUser && dbUser.password_hash) {
           const [salt, expectedHash] = String(dbUser.password_hash).split(":");
           if (salt && expectedHash) {
             const actualHash = await sha256Hex(`${salt}:${password}`);
             if (actualHash === expectedHash) {
-              const safeUser = buildSafeUserObj(dbUser);
+              const safeUser = buildSafeUserObj({
+                ...dbUser,
+                avatarUrl: dbUser.avatar_url || "",
+                phoneNumber: dbUser.phone_number || "",
+                interestedCourses: dbUser.interested_courses ? (typeof dbUser.interested_courses === "string" ? JSON.parse(dbUser.interested_courses) : dbUser.interested_courses) : [],
+                interestedTracks: dbUser.interested_tracks ? (typeof dbUser.interested_tracks === "string" ? JSON.parse(dbUser.interested_tracks) : dbUser.interested_tracks) : [],
+                subscriptionExpiresAt: dbUser.subscription_expires_at,
+                createdAt: Number(dbUser.created_at)
+              });
+              await env.DB.prepare("UPDATE users SET last_login_at = ?, sign_in_count = sign_in_count + 1 WHERE id = ?").bind(Date.now(), dbUser.id).run().catch(() => {});
               const { token, csrfToken } = await createWorkerSession(safeUser, env);
               return json(request, env, 200, { user: safeUser, token, csrfToken });
             }
           }
         }
       } catch (err) {
-        console.warn("Supabase login check failed:", err?.message || err);
+        console.warn("D1 login check note:", err.message);
       }
     }
 
@@ -825,15 +804,28 @@ async function handleAuth(request, env, supabase) {
     const rawEmail = String(body.email || "").trim().toLowerCase();
     const rawPhone = sanitize(body.phoneNumber, 40);
     const password = String(body.password || "");
-    const accountType = body.accountType === "guest" ? "guest" : "student";
+    const allowedRoles = ["student", "guest", "instructor", "admin"];
+    const requestedRole = String(body.role || body.accountType || "student").toLowerCase();
+    const role = allowedRoles.includes(requestedRole) ? requestedRole : "student";
 
     if (!rawName || !rawEmail || !password) {
       return json(request, env, 400, { error: "Name, email and password are required." });
     }
 
-    const exists = SYSTEM_USERS.some(u => u.email.toLowerCase() === rawEmail || (u.aliases && u.aliases.includes(rawEmail)));
-    if (exists) {
+    const existsSys = SYSTEM_USERS.some(u => u.email.toLowerCase() === rawEmail || (u.aliases && u.aliases.includes(rawEmail)));
+    if (existsSys) {
       return json(request, env, 409, { error: "An account with that email already exists." });
+    }
+
+    if (env.DB) {
+      try {
+        const existing = await env.DB.prepare("SELECT id FROM users WHERE LOWER(email) = LOWER(?)").bind(rawEmail).first();
+        if (existing) {
+          return json(request, env, 409, { error: "An account with that email already exists." });
+        }
+      } catch (e) {
+        console.warn("D1 check user exists error:", e.message);
+      }
     }
 
     const salt = crypto.randomUUID();
@@ -844,9 +836,9 @@ async function handleAuth(request, env, supabase) {
       email: rawEmail,
       username: sanitize(body.username || rawName.split(" ")[0].toLowerCase().replace(/[^a-z0-9]/g, ""), 40),
       passwordHash,
-      role: accountType,
+      role,
       avatarUrl: sanitize(body.avatarUrl || "", 512),
-      bio: "",
+      bio: sanitize(body.bio || "", 500),
       phoneNumber: rawPhone,
       interestedCourses: Array.isArray(body.interestedCourses) ? body.interestedCourses.slice(0, 50) : [],
       interestedTracks: Array.isArray(body.interestedTracks) ? body.interestedTracks.slice(0, 50) : [],
@@ -856,25 +848,36 @@ async function handleAuth(request, env, supabase) {
       authProvider: "email"
     };
 
-    if (supabase) {
-      supabase.from("users").insert({
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        username: newUser.username,
-        password_hash: newUser.passwordHash,
-        role: newUser.role,
-        avatar_url: newUser.avatarUrl,
-        bio: newUser.bio,
-        phone_number: newUser.phoneNumber,
-        interested_courses: newUser.interestedCourses,
-        interested_tracks: newUser.interestedTracks,
-        created_at: newUser.createdAt,
-        last_login_at: newUser.lastLoginAt,
-        sign_in_count: 1,
-        verified_at: new Date().toISOString(),
-        auth_provider: "email"
-      }).catch(() => {});
+    if (env.DB) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO users (
+            id, name, email, username, password_hash, role, avatar_url, bio, phone_number,
+            interested_courses, interested_tracks, created_at, last_login_at, sign_in_count,
+            verified_at, auth_provider
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          newUser.id,
+          newUser.name,
+          newUser.email,
+          newUser.username,
+          newUser.passwordHash,
+          newUser.role,
+          newUser.avatarUrl,
+          newUser.bio,
+          newUser.phoneNumber,
+          JSON.stringify(newUser.interestedCourses),
+          JSON.stringify(newUser.interestedTracks),
+          newUser.createdAt,
+          newUser.lastLoginAt,
+          1,
+          new Date().toISOString(),
+          "email"
+        ).run();
+      } catch (err) {
+        console.error("D1 user insert failed:", err.message);
+        return json(request, env, 500, { error: "Failed to create user account: " + err.message });
+      }
     }
 
     const safeUser = buildSafeUserObj(newUser);
@@ -890,6 +893,22 @@ async function handleAuth(request, env, supabase) {
     if (sysUser) {
       return json(request, env, 200, { user: buildSafeUserObj(sysUser) });
     }
+    if (env.DB) {
+      try {
+        const dbUser = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(session.user_id).first();
+        if (dbUser) {
+          return json(request, env, 200, { user: buildSafeUserObj({
+            ...dbUser,
+            avatarUrl: dbUser.avatar_url || "",
+            phoneNumber: dbUser.phone_number || "",
+            interestedCourses: dbUser.interested_courses ? (typeof dbUser.interested_courses === "string" ? JSON.parse(dbUser.interested_courses) : dbUser.interested_courses) : [],
+            interestedTracks: dbUser.interested_tracks ? (typeof dbUser.interested_tracks === "string" ? JSON.parse(dbUser.interested_tracks) : dbUser.interested_tracks) : [],
+            subscriptionExpiresAt: dbUser.subscription_expires_at,
+            createdAt: Number(dbUser.created_at)
+          }) });
+        }
+      } catch {}
+    }
     return json(request, env, 200, { user: buildSafeUserObj({ id: session.user_id, role: session.role, email: session.email, name: session.name || "User" }) });
   }
 
@@ -900,16 +919,28 @@ async function handleAuth(request, env, supabase) {
       return json(request, env, 403, { error: "Access denied." });
     }
     let list = SYSTEM_USERS.map(buildSafeUserObj);
-    if (supabase) {
+    if (env.DB) {
       try {
-        const { data, error } = await supabase.from("users").select("*");
-        if (!error && Array.isArray(data)) {
+        const { results } = await env.DB.prepare("SELECT * FROM users ORDER BY created_at DESC").all();
+        if (Array.isArray(results)) {
           const sysIds = new Set(SYSTEM_USERS.map(u => u.id));
-          for (const u of data) {
-            if (!sysIds.has(u.id)) list.push(buildSafeUserObj(u));
+          for (const u of results) {
+            if (!sysIds.has(u.id)) {
+              list.push(buildSafeUserObj({
+                ...u,
+                avatarUrl: u.avatar_url || "",
+                phoneNumber: u.phone_number || "",
+                interestedCourses: u.interested_courses ? (typeof u.interested_courses === "string" ? JSON.parse(u.interested_courses) : u.interested_courses) : [],
+                interestedTracks: u.interested_tracks ? (typeof u.interested_tracks === "string" ? JSON.parse(u.interested_tracks) : u.interested_tracks) : [],
+                subscriptionExpiresAt: u.subscription_expires_at,
+                createdAt: Number(u.created_at)
+              }));
+            }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn("D1 list users note:", err.message);
+      }
     }
     return json(request, env, 200, { users: list });
   }
@@ -919,8 +950,58 @@ async function handleAuth(request, env, supabase) {
     const session = await getSession(request, env, supabase);
     if (!session) return json(request, env, 401, { error: "Please sign in." });
     const updates = body.updates || {};
+    if (env.DB && session.user_id && session.user_id !== "admin-kfahad") {
+      try {
+        if (updates.name) await env.DB.prepare("UPDATE users SET name = ? WHERE id = ?").bind(updates.name, session.user_id).run();
+        if (updates.bio !== undefined) await env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(updates.bio, session.user_id).run();
+        if (updates.phoneNumber) await env.DB.prepare("UPDATE users SET phone_number = ? WHERE id = ?").bind(updates.phoneNumber, session.user_id).run();
+        if (updates.avatarUrl) await env.DB.prepare("UPDATE users SET avatar_url = ? WHERE id = ?").bind(updates.avatarUrl, session.user_id).run();
+        if (updates.subscriptionExpiresAt) await env.DB.prepare("UPDATE users SET subscription_expires_at = ?, plan = ? WHERE id = ?").bind(updates.subscriptionExpiresAt, updates.plan || "", session.user_id).run();
+      } catch {}
+    }
     const safeUser = buildSafeUserObj({ ...session, ...updates });
     return json(request, env, 200, { user: safeUser });
+  }
+
+  // 7b. ADMIN UPDATE USER
+  if (action === "admin_update_user") {
+    const session = await getSession(request, env, supabase);
+    if (!session || String(session.role).toLowerCase() !== "admin") {
+      return json(request, env, 403, { error: "Access denied." });
+    }
+    const targetUserId = sanitize(body.userId, 100);
+    if (!targetUserId) return json(request, env, 400, { error: "User ID is required." });
+    const updates = body.updates || {};
+    if (env.DB && targetUserId !== "admin-kfahad") {
+      try {
+        if (updates.role) await env.DB.prepare("UPDATE users SET role = ? WHERE id = ?").bind(updates.role, targetUserId).run();
+        if (updates.subscriptionExpiresAt !== undefined) await env.DB.prepare("UPDATE users SET subscription_expires_at = ? WHERE id = ?").bind(updates.subscriptionExpiresAt, targetUserId).run();
+      } catch (err) {
+        return json(request, env, 500, { error: "Failed to update user: " + err.message });
+      }
+    }
+    return json(request, env, 200, { success: true });
+  }
+
+  // 7c. ADMIN DELETE USER
+  if (action === "admin_delete_user") {
+    const session = await getSession(request, env, supabase);
+    if (!session || String(session.role).toLowerCase() !== "admin") {
+      return json(request, env, 403, { error: "Access denied." });
+    }
+    const targetUserId = sanitize(body.userId, 100);
+    if (!targetUserId || targetUserId === "admin-kfahad") {
+      return json(request, env, 400, { error: "Cannot delete this user." });
+    }
+    if (env.DB) {
+      try {
+        await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId).run();
+        await env.DB.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(targetUserId).run();
+      } catch (err) {
+        return json(request, env, 500, { error: "Failed to delete user: " + err.message });
+      }
+    }
+    return json(request, env, 200, { success: true });
   }
 
   // 8. ACCEPT TERMS

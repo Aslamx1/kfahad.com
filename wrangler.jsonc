@@ -31,6 +31,13 @@
       "new_sqlite_classes": ["RateLimiter"]
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kfahad-production",
+      "database_id": "fdbde1a4-ada7-4849-a62b-fbd8257578dc"
+    }
+  ],
   "vars": {
     "AUTH_BACKEND_URL": "https://jocular-malabi-812ccf.netlify.app",
     "AUTH_ALLOWED_ORIGIN": "https://kfahad.com,https://www.kfahad.com,https://kfahad-com.amdernpropertiessmclimited.workers.dev",
