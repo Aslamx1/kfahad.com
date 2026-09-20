@@ -6,6 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [
+    { "pattern": "kfahad.com/*", "zone_name": "kfahad.com" },
+    { "pattern": "www.kfahad.com/*", "zone_name": "kfahad.com" },
     { "pattern": "kfahad.com", "custom_domain": true },
     { "pattern": "www.kfahad.com", "custom_domain": true }
   ],
