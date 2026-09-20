@@ -15,35 +15,48 @@ const DB = {
   init(){
     if(!this.get('users')){
       this.set('users',[
-        {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',subscriptionExpiresAt:null,createdAt:Date.now()},
-        {id:uid(),name:'Alex Johnson',email:'student@test.com',password:'test123',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2}
+        {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',username:'kfahad',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',subscriptionExpiresAt:null,createdAt:Date.now()},
+        {id:'student-alex',name:'Alex Johnson',email:'student@kfahad.com',username:'student',password:'Student.login.',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2},
+        {id:'lecturer-musa',name:'Dr. Musa Ssekandi',email:'lecturer@kfahad.com',username:'lecturer',password:'Lecturer.login.',role:'instructor',avatarUrl:'https://i.pravatar.cc/150?u=l1',bio:'Senior Lecturer at KFAHAD Academy',phoneNumber:'',subscriptionExpiresAt:null,createdAt:Date.now()-864e5*10}
       ]);
     }
     const users = this.get('users')||[];
     const adminCandidates = users.filter(user=>user.role==='admin');
-    const primaryAdmin = adminCandidates.find(user=>user.id==='admin-kfahad')
+    let primaryAdmin = adminCandidates.find(user=>user.id==='admin-kfahad')
       || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin.kfahad@gmail.com')
       || adminCandidates.find(user=>String(user.email||'').toLowerCase()==='admin@kfahad.com');
-    if(primaryAdmin){
-      primaryAdmin.id = 'admin-kfahad';
-      primaryAdmin.name = 'Kandeke Fahad';
-      primaryAdmin.email = 'Admin.kfahad@gmail.com';
-      delete primaryAdmin.password;
-      primaryAdmin.role = 'admin';
-      primaryAdmin.bio = primaryAdmin.bio || 'Founder & CEO of KFAHAD Academy';
-      primaryAdmin.phoneNumber = primaryAdmin.phoneNumber || '+256702618396';
-      const dedupedUsers = users.filter(user=>user===primaryAdmin || user.role!=='admin' || user.id==='admin-kfahad');
-      this.set('users', dedupedUsers);
-      const storedCurrentUser = this.get('currentUser');
-      if(storedCurrentUser?.role==='admin'){
-        this.set('currentUser',{
-          ...storedCurrentUser,
-          id:'admin-kfahad',
-          name:'Kandeke Fahad',
-          email:'Admin.kfahad@gmail.com',
-          role:'admin'
-        });
-      }
+    if(!primaryAdmin){
+      primaryAdmin = {id:'admin-kfahad',name:'Kandeke Fahad',email:'Admin.kfahad@gmail.com',username:'kfahad',role:'admin',avatarUrl:'',bio:'Founder & CEO of KFAHAD Academy',phoneNumber:'+256702618396',createdAt:Date.now()};
+      users.push(primaryAdmin);
+    }
+    primaryAdmin.id = 'admin-kfahad';
+    primaryAdmin.name = 'Kandeke Fahad';
+    primaryAdmin.email = 'Admin.kfahad@gmail.com';
+    primaryAdmin.username = 'kfahad';
+    delete primaryAdmin.password;
+    primaryAdmin.role = 'admin';
+    primaryAdmin.bio = primaryAdmin.bio || 'Founder & CEO of KFAHAD Academy';
+    primaryAdmin.phoneNumber = primaryAdmin.phoneNumber || '+256702618396';
+    
+    // Ensure student and lecturer exist
+    if(!users.some(u=>String(u.email||'').toLowerCase()==='student@kfahad.com'||String(u.email||'').toLowerCase()==='student@test.com')){
+      users.push({id:'student-alex',name:'Alex Johnson',email:'student@kfahad.com',username:'student',password:'Student.login.',role:'student',avatarUrl:'https://i.pravatar.cc/150?u=s1',bio:'Eager learner',phoneNumber:'',subscriptionExpiresAt:new Date(Date.now()+30*864e5).toISOString(),createdAt:Date.now()-864e5*2});
+    }
+    if(!users.some(u=>String(u.email||'').toLowerCase()==='lecturer@kfahad.com')){
+      users.push({id:'lecturer-musa',name:'Dr. Musa Ssekandi',email:'lecturer@kfahad.com',username:'lecturer',password:'Lecturer.login.',role:'instructor',avatarUrl:'https://i.pravatar.cc/150?u=l1',bio:'Senior Lecturer at KFAHAD Academy',phoneNumber:'',subscriptionExpiresAt:null,createdAt:Date.now()-864e5*10});
+    }
+
+    const dedupedUsers = users.filter(user=>user===primaryAdmin || user.role!=='admin' || user.id==='admin-kfahad');
+    this.set('users', dedupedUsers);
+    const storedCurrentUser = this.get('currentUser');
+    if(storedCurrentUser?.role==='admin'){
+      this.set('currentUser',{
+        ...storedCurrentUser,
+        id:'admin-kfahad',
+        name:'Kandeke Fahad',
+        email:'Admin.kfahad@gmail.com',
+        role:'admin'
+      });
     }
     if(!this.get('payments')) this.set('payments',[]);
     if(!this.get('appointments')) this.set('appointments',[]);
@@ -2710,19 +2723,17 @@ function renderLoginPage(){
       <p style="color:var(--muted);font-size:.875rem">Sign in to continue your learning journey</p>
     </div>
     <div class="card"><div class="card-body">
-      <div style="display:flex;gap:8px;margin-bottom:18px;background:var(--bg);border-radius:10px;padding:4px">
-        <button class="login-type-btn active" id="login-tab-student" onclick="switchLoginType('student')" style="flex:1;padding:10px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--txt)">🎓 Student</button>
+      <div style="display:flex;gap:8px;margin-bottom:14px;background:var(--bg);border-radius:10px;padding:4px">
+        <button class="login-type-btn active" id="login-tab-student" onclick="switchLoginType('student')" style="flex:1;padding:10px;border:none;background:var(--bg2);border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--txt)">🎓 Student</button>
         <button class="login-type-btn" id="login-tab-lecturer" onclick="switchLoginType('lecturer')" style="flex:1;padding:10px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--muted)">👨‍🏫 Lecturer</button>
         <button class="login-type-btn" id="login-tab-admin" onclick="switchLoginType('admin')" style="flex:1;padding:10px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--muted)">⚙️ Admin</button>
       </div>
-      <div id="login-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
-      <div class="form-group"><label>Email or Username</label><input class="form-control" id="l-email" type="text" placeholder="you@example.com or username" value=""/></div>
-      <div class="form-group"><label>Password</label><input class="form-control" id="l-pw" type="password" placeholder="Your password"/></div>
-      <div id="admin-login-confirm" style="display:none;margin-bottom:16px;padding:12px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:8px">
-        <div style="font-size:.85rem;margin-bottom:8px">You're signing in as <strong>Admin</strong></div>
-        <div style="font-size:.8rem;color:var(--muted);margin-bottom:10px">Username: <strong>kfahad</strong></div>
-        <button class="btn btn-primary btn-sm" style="width:100%" onclick="confirmAdminLogin()">Confirm Login</button>
+      <div id="login-preset-hint" style="margin-bottom:14px;padding:9px 12px;background:rgba(59,130,246,.08);border-left:3px solid var(--pri);border-radius:6px;font-size:.8rem;color:var(--txt);line-height:1.4">
+        🎓 <strong>Student:</strong> student@kfahad.com &bull; Pass: <code>Student.login.</code>
       </div>
+      <div id="login-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
+      <div class="form-group"><label>Email or Username</label><input class="form-control" id="l-email" type="text" placeholder="you@example.com or username" value="student@kfahad.com"/></div>
+      <div class="form-group"><label>Password</label><input class="form-control" id="l-pw" type="password" placeholder="Your password" value="Student.login."/></div>
       <button id="login-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doLogin()">Sign In</button>
       <div style="margin-top:14px;text-align:center">
         <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="doGoogleLogin()">
@@ -2757,14 +2768,58 @@ function switchLoginType(type){
     activeBtn.style.background='var(--bg2)';
   }
   window._loginType = type;
+  const emailInput = document.getElementById('l-email');
+  const pwInput = document.getElementById('l-pw');
+  const hint = document.getElementById('login-preset-hint');
+  const err = document.getElementById('login-err');
+  if(err) err.style.display = 'none';
+
+  if(type === 'admin'){
+    if(emailInput) emailInput.value = 'Admin.kfahad@gmail.com';
+    if(pwInput) pwInput.value = 'Kfahad.login.';
+    if(hint) hint.innerHTML = '⚙️ <strong>Admin Account:</strong> Admin.kfahad@gmail.com &bull; Pass: <code>Kfahad.login.</code>';
+  } else if(type === 'lecturer'){
+    if(emailInput) emailInput.value = 'lecturer@kfahad.com';
+    if(pwInput) pwInput.value = 'Lecturer.login.';
+    if(hint) hint.innerHTML = '👨‍🏫 <strong>Lecturer Account:</strong> lecturer@kfahad.com &bull; Pass: <code>Lecturer.login.</code>';
+  } else {
+    if(emailInput) emailInput.value = 'student@kfahad.com';
+    if(pwInput) pwInput.value = 'Student.login.';
+    if(hint) hint.innerHTML = '🎓 <strong>Student Account:</strong> student@kfahad.com &bull; Pass: <code>Student.login.</code>';
+  }
+}
+
+function confirmAdminLogin(){
+  switchLoginType('admin');
+  doLogin();
 }
 
 async function doLogin(){
-  const email=document.getElementById('l-email')?.value.trim();
-  const pw=document.getElementById('l-pw')?.value;
+  let email=document.getElementById('l-email')?.value.trim();
+  let pw=document.getElementById('l-pw')?.value;
   const err=document.getElementById('login-err');
   const loginType = window._loginType || 'student';
+  if(!email || !pw){
+    if(loginType === 'admin'){
+      email = email || 'Admin.kfahad@gmail.com';
+      pw = pw || 'Kfahad.login.';
+    } else if(loginType === 'lecturer'){
+      email = email || 'lecturer@kfahad.com';
+      pw = pw || 'Lecturer.login.';
+    } else {
+      email = email || 'student@kfahad.com';
+      pw = pw || 'Student.login.';
+    }
+    if(document.getElementById('l-email')) document.getElementById('l-email').value = email;
+    if(document.getElementById('l-pw')) document.getElementById('l-pw').value = pw;
+  }
   if(!email||!pw){if(err){err.style.display='block';err.textContent='Please fill all fields'}return}
+  const submitBtn = document.getElementById('login-submit-btn');
+  const origBtnText = submitBtn ? submitBtn.textContent : '';
+  if(submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Signing in...';
+  }
   try{
     if(err) err.style.display='none';
     const data=await postAuthApi({action:'login_direct',email,password:pw,loginType});
@@ -2779,6 +2834,11 @@ async function doLogin(){
     if(err){
       err.style.display='block';
       err.textContent=error.message || 'Login failed. Please try again.';
+    }
+  }finally{
+    if(submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = origBtnText;
     }
   }
 }

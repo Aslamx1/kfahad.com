@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>KFAHAD Academy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
-
-<!-- ===KFAHAD STYLESHEET=== -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preload" href="styles.css" as="style"/>
+<link rel="preload" href="KF%20LOGO.png" as="image"/>
 <link rel="stylesheet" href="styles.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
 </head>
 <body>
 
@@ -62,18 +63,18 @@
 <button id="ai-bot-btn" class="hide-in-chat" onclick="toggleAIBot()" title="Ask KFAHAD AI Tutor" aria-label="Open AI tutor">
   <div class="ai-bot-pulse"></div>
   <div id="ai-bot-notif" aria-hidden="true"></div>
-  <img id="ai-bot-img" src="robot-ai.png" alt="AI Bot" style="width:100%;height:100%;object-fit:cover;border-radius:50%">
+  <img id="ai-bot-img" src="robot-ai.png" alt="AI Bot" decoding="async" style="width:100%;height:100%;object-fit:cover;border-radius:50%">
 </button>
 
 <!-- ===FLOATING ROBOT (VISIBLE EVERYWHERE)=== -->
 <div id="robot-float" class="hide-in-chat" onclick="toggleAIBot()" title="Chat with AI Bot">
-  <img src="robot-ai.png" alt="AI Bot" onerror="this.parentElement.style.display='none'"/>
+  <img src="robot-ai.png" alt="AI Bot" decoding="async" onerror="this.parentElement.style.display='none'"/>
 </div>
 
 <!-- ===AI BOT PANEL=== -->
 <div id="ai-bot-panel">
   <div class="ai-bot-header">
-    <div class="ai-bot-avatar"><img src="robot-ai.png" alt="AI Bot" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>
+    <div class="ai-bot-avatar"><img src="robot-ai.png" alt="AI Bot" decoding="async" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>
     <div class="ai-bot-info">
       <h4>KFAHAD AI Tutor</h4>
       <p><span class="ai-bot-status"></span> Online &amp; ready to help</p>
@@ -103,6 +104,6 @@
 
 
 <!-- ===KFAHAD APPLICATION SCRIPT=== -->
-<script src="app.js"></script>
+<script src="app.js" defer></script>
 </body>
 </html>

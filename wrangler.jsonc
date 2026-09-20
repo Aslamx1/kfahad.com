@@ -1,10 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kfahad-academy",
+  "name": "kfahad-com",
   "main": "worker.js",
   "compatibility_date": "2026-09-20",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "routes": [
+    { "pattern": "kfahad.com", "custom_domain": true },
+    { "pattern": "www.kfahad.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
@@ -27,7 +31,8 @@
   ],
   "vars": {
     "AUTH_BACKEND_URL": "https://jocular-malabi-812ccf.netlify.app",
-    "AUTH_ALLOWED_ORIGIN": "https://kfahad.com",
-    "ALLOWED_ORIGIN": "https://kfahad.com"
+    "AUTH_ALLOWED_ORIGIN": "https://kfahad.com,https://www.kfahad.com,https://kfahad-com.amdernpropertiessmclimited.workers.dev",
+    "ALLOWED_ORIGIN": "https://kfahad.com,https://www.kfahad.com,https://kfahad-com.amdernpropertiessmclimited.workers.dev",
+    "APP_URL": "https://kfahad.com"
   }
 }

@@ -281,3 +281,56 @@ create policy "private_write_own_progress" on public.learning_progress for inser
 -- Messages
 create policy "messages_read_authenticated" on public.messages for select using (true);
 create policy "messages_write_authenticated" on public.messages for insert with check (true);
+
+-- ================================================================
+-- INITIAL SEED USERS
+-- ================================================================
+
+-- 1. Admin Account (Email: Admin.kfahad@gmail.com / Pass: Kfahad.login.)
+insert into public.users (
+  id, name, email, username, role, password_hash, bio, phone_number, verified_at, created_at, last_login_at
+) values (
+  'a0000000-0000-0000-0000-000000000001',
+  'Kandeke Fahad',
+  'admin.kfahad@gmail.com',
+  'kfahad',
+  'admin',
+  '007646dda8a8efff1ea5511164908011:6f61f16b8ff4141c4ec1ee5a935b75c447b3331799c82399c629508d93f8195c86e7fa1232ee70b95395937b40b183630efd0fcf30b147b2d173e5f4d3b0fdde',
+  'Founder & CEO of KFAHAD Academy',
+  '+256702618396',
+  now()::text,
+  extract(epoch from now())::bigint,
+  extract(epoch from now())::bigint
+) on conflict (email) do update set
+  role = 'admin',
+  password_hash = excluded.password_hash;
+
+-- 2. Student Demo Account (Email: student@kfahad.com / Pass: Student.login.)
+insert into public.users (
+  id, name, email, username, role, password_hash, bio, verified_at, created_at
+) values (
+  'a0000000-0000-0000-0000-000000000002',
+  'Alex Johnson',
+  'student@kfahad.com',
+  'student',
+  'student',
+  '007646dda8a8efff1ea5511164908011:6f61f16b8ff4141c4ec1ee5a935b75c447b3331799c82399c629508d93f8195c86e7fa1232ee70b95395937b40b183630efd0fcf30b147b2d173e5f4d3b0fdde',
+  'Eager learner at KFAHAD Academy',
+  now()::text,
+  extract(epoch from now())::bigint
+) on conflict (email) do nothing;
+
+-- 3. Lecturer Demo Account (Email: lecturer@kfahad.com / Pass: Lecturer.login.)
+insert into public.users (
+  id, name, email, username, role, password_hash, bio, verified_at, created_at
+) values (
+  'a0000000-0000-0000-0000-000000000003',
+  'Dr. Musa Ssekandi',
+  'lecturer@kfahad.com',
+  'lecturer',
+  'instructor',
+  '007646dda8a8efff1ea5511164908011:6f61f16b8ff4141c4ec1ee5a935b75c447b3331799c82399c629508d93f8195c86e7fa1232ee70b95395937b40b183630efd0fcf30b147b2d173e5f4d3b0fdde',
+  'Senior Lecturer at KFAHAD Academy',
+  now()::text,
+  extract(epoch from now())::bigint
+) on conflict (email) do nothing;
