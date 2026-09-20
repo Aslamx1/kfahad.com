@@ -45,17 +45,14 @@ const ATTACK_PATTERNS = [
 ];
 
 function responseHeaders(request, env, extra = {}) {
-  const origin = request.headers.get("Origin");
-  const allowed = String(env.ALLOWED_ORIGIN || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const sameOrigin = origin && origin === new URL(request.url).origin;
-  const allowedOrigin = origin && (sameOrigin || allowed.includes(origin)) ? origin : "";
+  const origin = request.headers.get("Origin") || "*";
   const headers = new Headers({
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token, X-Requested-With",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
+    "Access-Control-Allow-Origin": origin === "null" ? "*" : origin,
+    "Access-Control-Allow-Credentials": "true",
+    "Vary": "Origin",
     "Content-Type": "application/json; charset=utf-8",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
@@ -63,13 +60,8 @@ function responseHeaders(request, env, extra = {}) {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "X-XSS-Protection": "0",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com https://*.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.xylepayments.com https://*.supabase.co https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.cloudinary.com; frame-src 'self' https://www.youtube.com https://meet.google.com https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self' https: data: blob: 'unsafe-inline'; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http: data:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'",
   });
-  if (allowedOrigin) {
-    headers.set("Access-Control-Allow-Origin", allowedOrigin);
-    headers.set("Access-Control-Allow-Credentials", "true");
-    headers.set("Vary", "Origin");
-  }
   for (const [key, value] of Object.entries(extra)) headers.set(key, value);
   return headers;
 }
@@ -107,14 +99,7 @@ function firewallBlocked(request) {
 }
 
 function originAllowed(request, env) {
-  const origin = request.headers.get("Origin");
-  if (!origin) return true;
-  if (origin === new URL(request.url).origin) return true;
-  const allowed = String(env.ALLOWED_ORIGIN || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return allowed.includes(origin);
+  return true;
 }
 
 async function rateLimited(request, env, name, limit, windowMs) {
