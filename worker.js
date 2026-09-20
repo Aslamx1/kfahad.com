@@ -456,7 +456,7 @@ async function handleData(request, env, supabase) {
     if (action && action.startsWith("xyle_")) {
       const secretKey = env.XYLEPAYMENTS_SECRET_KEY;
       if (!secretKey) {
-        return json(request, env, 503, {
+        return json(request, env, 200, {
           success: false,
           error: "Automated payment gateway is not configured. Please use Direct Mobile Money or Bank Transfer.",
           needsManualPayment: true

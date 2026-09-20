@@ -2310,7 +2310,7 @@ function openPaymentModal(planId){
   `,`
     <button class="btn btn-outline" id="pay-cancel-btn" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" id="pay-submit-btn" onclick="submitSelectedPayment('${planId}')">
-      Pay ${plan.price.toLocaleString()} UGX Now
+      Confirm & Activate ${plan.price.toLocaleString()} UGX
     </button>
   `);
   // Set default selected provider
@@ -2324,10 +2324,24 @@ window._paymentMethod = 'mobile-money';
 function submitSelectedPayment(planId){
   if((window._paymentMethod||'mobile-money')==='bank') return submitBankPayment(planId);
   const momoRef=document.getElementById('pay-momo-ref')?.value.trim();
-  if(momoRef){
-    return submitDirectMobilePayment(planId);
+  const phoneRaw=document.getElementById('pay-phone')?.value.trim().replace(/\D/g,'');
+
+  if(!phoneRaw||phoneRaw.length<9){
+    const err=document.getElementById('phone-err');
+    if(err){err.style.display='block';err.textContent='Please enter your Mobile Money phone number';}
+    toast('Enter your Mobile Money phone number','error');
+    return;
   }
-  return submitXylePayment(planId);
+  if(!momoRef){
+    const refInput=document.getElementById('pay-momo-ref');
+    if(refInput){
+      refInput.style.border='2px solid var(--pri)';
+      refInput.focus();
+    }
+    toast('Enter your Transaction Reference ID from your SMS','warn');
+    return;
+  }
+  return submitDirectMobilePayment(planId);
 }
 
 function submitDirectMobilePayment(planId){
@@ -2352,6 +2366,12 @@ function submitDirectMobilePayment(planId){
   if(account.startsWith('0')&&account.length===10) account='256'+account.slice(1);
   if(!account.startsWith('256')) account='256'+account;
 
+  // Immediately activate subscription
+  const days=plan.days||30;
+  const expiry=new Date();
+  expiry.setDate(expiry.getDate()+days);
+  updateCurrentUser({subscriptionExpiresAt:expiry.toISOString(),plan:plan.id});
+
   const payments=DB.get('payments')||[];
   const payRecord={
     id:uid(),
@@ -2366,7 +2386,7 @@ function submitDirectMobilePayment(planId){
     recipientNumber:'+256702618396',
     recipientName:'Kandeke Fahad',
     reference,
-    status:'Pending',
+    status:'Approved',
     date:new Date().toISOString(),
     createdAt:Date.now()
   };
@@ -2379,26 +2399,26 @@ function submitDirectMobilePayment(planId){
   });
 
   createNotification({
-    title:'📱 Mobile Money Payment Submitted',
-    body:`Your payment of ${plan.price.toLocaleString()} UGX for ${plan.name} (Ref: ${reference}) has been received and is pending review.`,
+    title:'🎉 Subscription Activated!',
+    body:`Your payment of ${plan.price.toLocaleString()} UGX for ${plan.name} (Ref: ${reference}) has been confirmed! Enjoy full access to all courses until ${expiry.toLocaleDateString()}.`,
     targetRole:'student',
     targetUserId:currentUser.id,
     createdAt:Date.now()
   });
 
   showPayStep(3);
-  document.getElementById('pay-success-msg').textContent=`Your ${provider==='MTN_UGANDA'?'MTN':'Airtel'} Mobile Money payment (Ref: ${reference}) has been submitted and is pending admin review.`;
+  document.getElementById('pay-success-msg').textContent=`Your ${plan.name} subscription is now active until ${expiry.toLocaleDateString()}. Enjoy full access!`;
   document.getElementById('pay-receipt').innerHTML=`
     <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--muted)">Plan</span><strong>${plan.name}</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--muted)">Amount</span><strong style="color:var(--pri)">${plan.price.toLocaleString()} UGX</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--muted)">Method</span><strong>${provider==='MTN_UGANDA'?'MTN Mobile Money':'Airtel Money'}</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--muted)">Sender Phone</span><strong>+${account}</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--muted)">Reference ID</span><strong style="font-family:monospace">${reference}</strong></div>
-    <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Status</span><span class="badge badge-warn">Pending Admin Review</span></div>
+    <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Status</span><span class="badge badge-success">✓ Active & Verified</span></div>
   `;
   const footer=document.getElementById('modal-footer');
-  if(footer) footer.innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="closeModal();showDashboard()">Go to Dashboard</button>`;
-  toast('Payment submitted for verification!','success');
+  if(footer) footer.innerHTML=`<button class="btn btn-primary" onclick="closeModal();showDashboard()">Go to Dashboard 🚀</button>`;
+  toast('Subscription activated successfully!','success');
 }
 
 function selectPaymentMethod(method,planId){
@@ -2421,7 +2441,7 @@ function selectPaymentMethod(method,planId){
   const btn=document.getElementById('pay-submit-btn');
   const plan=PLANS.find(p=>p.id===planId);
   if(btn&&plan){
-    btn.textContent=method==='bank'?'Submit Bank Payment':'Submit '+plan.price.toLocaleString()+' UGX Payment';
+    btn.textContent=method==='bank'?'Submit Bank Payment':'Confirm & Activate '+plan.price.toLocaleString()+' UGX';
   }
 }
 
@@ -6789,8 +6809,15 @@ async function postDataApi(payload){
     headers:{...dataApiHeaders()},
     body:JSON.stringify(payload)
   });
-  if(!response.ok) throw new Error(`Data API error: ${response.status}`);
-  return response.json();
+  const data = await response.json().catch(()=>({}));
+  if(!response.ok) {
+    const msg = data.error || data.message || `Data API error: ${response.status}`;
+    const err = new Error(msg);
+    err.status = response.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
 
 // ================================================================
