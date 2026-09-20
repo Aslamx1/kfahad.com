@@ -1613,7 +1613,7 @@ async function uploadCourseVideoToServer(fileData,publicId){
 async function handleVideoUpload(file, targetId){
   if(!file) return;
   if(!String(file.type||'').startsWith('video/')){toast('Please choose a valid video file','error');return;}
-  if(file.size > 1024*1024*1024){toast('Video file must be under 1GB','error');return;}
+  if(file.size > 60*1024*1024){toast('Video file must be under 60MB when uploaded through Cloudflare','error');return;}
   const preview=document.getElementById(targetId);
   if(preview){
     preview.innerHTML=`<div style="font-size:.8rem;color:var(--muted)">Uploading video...</div>`;
@@ -1653,7 +1653,7 @@ async function handleVideoUpload(file, targetId){
 async function handleLessonVideoUpload(file, moduleIndex, lessonIndex, targetId){
   if(!file) return;
   if(!String(file.type||'').startsWith('video/')){toast('Please choose a valid video file','error');return;}
-  if(file.size > 1024*1024*1024){toast('Video file must be under 1GB','error');return;}
+  if(file.size > 60*1024*1024){toast('Video file must be under 60MB when uploaded through Cloudflare','error');return;}
   const preview = document.getElementById(targetId);
   if(preview){
     preview.innerHTML=`<div style="font-size:.8rem;color:var(--muted)">Uploading lesson video...</div>`;
@@ -5169,7 +5169,7 @@ function renderCourseBuilder(){
               <div style="pointer-events:none">
                 <div style="font-size:2rem;margin-bottom:8px">🎬</div>
                 <div style="font-weight:600;margin-bottom:4px">Drop video here or click to upload</div>
-                <div style="font-size:.78rem;color:var(--muted)">MP4, WebM, MOV — max 1GB</div>
+                <div style="font-size:.78rem;color:var(--muted)">MP4, WebM, MOV — max 60MB</div>
               </div>
             </div>
             <div id="cb-video-preview">

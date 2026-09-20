@@ -1,0 +1,14 @@
+.git/**
+.netlify/**
+node_modules/**
+lib/**
+netlify/**
+*.md
+*.json
+*.jsonc
+*.toml
+*.sql
+.env*
+.gitignore
+.assetsignore
+worker.js

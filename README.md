@@ -1,5 +1,28 @@
 # KFAHAD Academy — Deployment
 
+## Cloudflare Workers
+
+The frontend and non-auth APIs run on Cloudflare Workers. Login, registration, OAuth,
+and password reset are forwarded to Netlify Functions so existing accounts and password
+hashes continue to work.
+
+1. Connect this GitHub repository to Cloudflare Workers & Pages.
+2. Set the build command to `npm run build` and deploy command to `npx wrangler deploy`.
+   The repository's `wrangler.jsonc` configures static assets and API routes.
+3. Set `ALLOWED_ORIGIN` to the exact public Cloudflare/custom-domain origin.
+4. Set `AUTH_ALLOWED_ORIGIN` to an origin accepted by the Netlify auth site's
+   `ALLOWED_ORIGIN` setting. For the production domain, this is `https://kfahad.com`.
+5. Add Worker secrets in Cloudflare (never commit their values):
+   `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`), `GEMINI_API_KEY`,
+   `XYLEPAYMENTS_SECRET_KEY`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
+6. Add Worker variables as required: `SUPABASE_URL`, `SUPABASE_STORAGE_BUCKET`,
+   `XYLEPAYMENTS_BASE_URL`, and `CLOUDINARY_CLOUD_NAME`.
+7. Redeploy and verify `/`, `/api/auth` (GET should return `405 Method not allowed`),
+   login, and API requests.
+
+The `RATE_LIMITER` SQLite Durable Object is configured by the `v1` migration in
+`wrangler.jsonc`.
+
 ## 1) Preflight check
 Run:
 

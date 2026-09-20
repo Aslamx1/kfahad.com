@@ -6,7 +6,7 @@
   "scripts": {
     "build": "echo 'Static site - no build step required'",
     "test": "echo \"No tests configured\"",
-    "check:live": "node --check app.js && node --check netlify/functions/auth.js && node --check netlify/functions/chat.js && node --check netlify/functions/data.js && node --check netlify/functions/messages.js && node --check netlify/functions/upload-profile-image.js && node --check netlify/functions/upload-course-video.js"
+    "check:live": "node --check app.js && node --check worker.js && node --check netlify/functions/auth.js && node --check netlify/functions/chat.js && node --check netlify/functions/data.js && node --check netlify/functions/messages.js && node --check netlify/functions/upload-profile-image.js && node --check netlify/functions/upload-course-video.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
