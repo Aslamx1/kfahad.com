@@ -487,7 +487,7 @@ async function handleData(request, env, supabase) {
 
         // Auto-detect Uganda carrier by prefix so MTN vs Airtel is always routed to the right telecom
         const clean9 = account.startsWith("256") ? account.slice(3) : account;
-        if (clean9.startsWith("77") || clean9.startsWith("78") || clean9.startsWith("76")) {
+        if (clean9.startsWith("77") || clean9.startsWith("78") || clean9.startsWith("76") || clean9.startsWith("79")) {
           provider = "MTN_UGANDA";
         } else if (clean9.startsWith("70") || clean9.startsWith("75") || clean9.startsWith("74")) {
           provider = "AIRTEL_UGANDA";
