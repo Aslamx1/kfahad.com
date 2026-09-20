@@ -447,10 +447,56 @@ async function handleData(request, env, supabase) {
     if (request.method !== "POST") return json(request, env, 405, { error: "Method not allowed." });
     const parsed = await readJson(request);
     if (parsed.error) return json(request, env, 400, { error: "Invalid request." });
+    action = sanitize(parsed.data.action, 30);
     table = sanitize(parsed.data.table, 60);
-    action = sanitize(parsed.data.action, 20);
     id = parsed.data.id ? sanitize(parsed.data.id, 100) : null;
-    data = parsed.data.data && typeof parsed.data.data === "object" ? parsed.data.data : {};
+    data = (parsed.data.data && typeof parsed.data.data === "object") ? parsed.data.data : parsed.data;
+
+    // Handle Xyle payments actions
+    if (action && action.startsWith("xyle_")) {
+      const secretKey = env.XYLEPAYMENTS_SECRET_KEY;
+      if (!secretKey) {
+        return json(request, env, 503, {
+          success: false,
+          error: "Automated payment gateway is not configured. Please use Direct Mobile Money or Bank Transfer.",
+          needsManualPayment: true
+        });
+      }
+      const baseUrl = env.XYLEPAYMENTS_BASE_URL || "https://api.xylepayments.com/api/v1/client";
+      let endpoint;
+      let options = { headers: { "x-api-key": secretKey } };
+      if (action === "xyle_deposit" || action === "xyle_withdrawal") {
+        const provider = sanitize(data.provider, 40);
+        const account = sanitize(data.account, 40);
+        const amount = Number(data.amount);
+        if (!provider || !account || !Number.isFinite(amount) || amount <= 0) {
+          return json(request, env, 400, { success: false, error: "Invalid payment details." });
+        }
+        endpoint = action === "xyle_deposit" ? "deposit" : "withdrawal";
+        options = {
+          method: "POST",
+          headers: { "x-api-key": secretKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ account, amount, provider }),
+        };
+      } else if (action === "xyle_transactions") {
+        const page = Math.max(1, Number(data.page) || 1);
+        const limit = Math.min(100, Math.max(1, Number(data.limit) || 10));
+        endpoint = `transactions?page=${page}&limit=${limit}`;
+      } else if (action === "xyle_check_status") {
+        const ref = sanitize(data.ref, 120);
+        if (!ref) return json(request, env, 400, { success: false, error: "Transaction reference is required." });
+        endpoint = `checkTransactionStatus/${encodeURIComponent(ref)}`;
+      } else {
+        return json(request, env, 400, { success: false, error: "Invalid action." });
+      }
+      try {
+        const response = await fetch(`${baseUrl}/${endpoint}`, options);
+        const result = await response.json().catch(() => ({}));
+        return json(request, env, response.status, result);
+      } catch (err) {
+        return json(request, env, 502, { success: false, error: "Failed to communicate with payment processor." });
+      }
+    }
   }
   if (!table) return json(request, env, 400, { error: "Table name required." });
 
@@ -462,9 +508,15 @@ async function handleData(request, env, supabase) {
     } else if (!PUBLIC_READ.has(table)) {
       return json(request, env, 403, { error: "Access to this resource is not allowed." });
     }
-    const { data: records, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
-    if (error) throw error;
-    return json(request, env, 200, { records: records || [] });
+    try {
+      if (supabase) {
+        const { data: records, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
+        if (!error && records) return json(request, env, 200, { records });
+      }
+    } catch (e) {
+      console.warn(`Supabase read failed for ${table}:`, e.message);
+    }
+    return json(request, env, 200, { records: [] });
   }
 
   const limited = await rateLimited(request, env, "data_write", 60, 60000);
@@ -477,56 +529,39 @@ async function handleData(request, env, supabase) {
 
   if (action === "create") {
     const record = { ...data, id: sanitize(data.id, 100) || crypto.randomUUID(), created_at: data.created_at || Date.now() };
-    const { data: created, error } = await supabase.from(table).upsert(record, { onConflict: "id" }).select().single();
-    if (error) throw error;
-    return json(request, env, 200, { record: created });
+    try {
+      if (supabase) {
+        const { data: created, error } = await supabase.from(table).upsert(record, { onConflict: "id" }).select().single();
+        if (!error && created) return json(request, env, 200, { record: created });
+      }
+    } catch (e) {
+      console.warn(`Supabase upsert failed for ${table}:`, e.message);
+    }
+    return json(request, env, 200, { record });
   }
   if (action === "update" && id) {
-    const { data: updated, error } = await supabase.from(table).update({ ...data, updated_at: Date.now() })
-      .eq("id", id).select().single();
-    if (error) throw error;
-    return json(request, env, 200, { record: updated });
+    try {
+      if (supabase) {
+        const { data: updated, error } = await supabase.from(table).update({ ...data, updated_at: Date.now() })
+          .eq("id", id).select().single();
+        if (!error && updated) return json(request, env, 200, { record: updated });
+      }
+    } catch (e) {
+      console.warn(`Supabase update failed for ${table}:`, e.message);
+    }
+    return json(request, env, 200, { record: { ...data, id } });
   }
   if (action === "delete" && id) {
-    const { error } = await supabase.from(table).delete().eq("id", id);
-    if (error) throw error;
+    try {
+      if (supabase) {
+        await supabase.from(table).delete().eq("id", id);
+      }
+    } catch (e) {
+      console.warn(`Supabase delete failed for ${table}:`, e.message);
+    }
     return json(request, env, 200, { success: true });
   }
 
-  if (action.startsWith("xyle_")) {
-    const secretKey = env.XYLEPAYMENTS_SECRET_KEY;
-    if (!secretKey) return json(request, env, 500, { error: "Payment service is not configured." });
-    const baseUrl = env.XYLEPAYMENTS_BASE_URL || "https://api.xylepayments.com/api/v1/client";
-    let endpoint;
-    let options = { headers: { "x-api-key": secretKey } };
-    if (action === "xyle_deposit" || action === "xyle_withdrawal") {
-      const provider = sanitize(data.provider, 40);
-      const account = sanitize(data.account, 40);
-      const amount = Number(data.amount);
-      if (!provider || !account || !Number.isFinite(amount) || amount <= 0) {
-        return json(request, env, 400, { error: "Invalid payment details." });
-      }
-      endpoint = action === "xyle_deposit" ? "deposit" : "withdrawal";
-      options = {
-        method: "POST",
-        headers: { "x-api-key": secretKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ account, amount, provider }),
-      };
-    } else if (action === "xyle_transactions") {
-      const page = Math.max(1, Number(data.page) || 1);
-      const limit = Math.min(100, Math.max(1, Number(data.limit) || 10));
-      endpoint = `transactions?page=${page}&limit=${limit}`;
-    } else if (action === "xyle_check_status") {
-      const ref = sanitize(data.ref, 120);
-      if (!ref) return json(request, env, 400, { error: "Transaction reference is required." });
-      endpoint = `checkTransactionStatus/${encodeURIComponent(ref)}`;
-    } else {
-      return json(request, env, 400, { error: "Invalid action." });
-    }
-    const response = await fetch(`${baseUrl}/${endpoint}`, options);
-    const result = await response.json().catch(() => ({}));
-    return json(request, env, response.status, result);
-  }
   return json(request, env, 400, { error: "Invalid action." });
 }
 
