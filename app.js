@@ -2102,6 +2102,7 @@ function renderHomePage(){
 const XYLE_BASE = 'https://api.xylepayments.com/api/v1/client';
 
 const PLANS = [
+  {id:'trial',name:'Trial Access',price:1000,days:1,emoji:'⚡',color:'#eab308',desc:'1-day full access to test courses & real Mobile Money.',features:['Instant Access to All Lessons','Interactive Quizzes','Community Chat Access','Live Mobile Money Checkout'],popular:false,foot:'⚡ 1,000 UGX Quick Test'},
   {id:'basic',name:'Basic Plan',price:50000,days:30,emoji:'🟢',color:'#22c55e',desc:'Perfect for getting started.',features:['All Standard Video Courses','Community Chat Access','Interactive Quizzes','Project Examples'],popular:false,foot:'💰 Affordable entry plan'},
   {id:'pro',name:'Pro Plan',price:100000,days:30,emoji:'🔵',color:'#3b82f6',desc:'Best for career-focused students.',features:['Everything in Basic','Live Masterclasses','Full Knowledge Base Access','Job Board Integration','Monthly Challenges'],popular:true,foot:'⭐ Best value for money'},
   {id:'premium',name:'Premium Plan',price:200000,days:30,emoji:'🟣',color:'#8b5cf6',desc:'Elite features for power users.',features:['Everything in Pro','1-on-1 Mentorship Sessions','Priority Support','Personalized Learning Path','Certification Prep'],popular:false,foot:'💰 All-in-one professional'}

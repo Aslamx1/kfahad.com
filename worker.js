@@ -527,7 +527,8 @@ async function handleData(request, env, supabase) {
             result.error = friendly;
           } else if (rawMsg.includes("transact failed")) {
             const provLabel = provider === "MTN_UGANDA" ? "MTN Mobile Money" : (provider === "AIRTEL_UGANDA" ? "Airtel Money" : "Mobile Money");
-            const friendly = `Transaction could not be completed by ${provLabel}. Please ensure this phone number is registered for Mobile Money with active funds and reachable on the network.`;
+            const amtStr = Number.isFinite(amount) && amount > 0 ? ` of ${amount.toLocaleString()} UGX` : "";
+            const friendly = `Transaction${amtStr} was declined by ${provLabel}. This occurs when the subscriber wallet balance is lower than the amount (${amount.toLocaleString()} UGX) or the SIM is not active. Please ensure you have sufficient balance on your phone, or choose Direct Transfer.`;
             result.message = friendly;
             result.error = friendly;
           }
