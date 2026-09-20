@@ -2202,12 +2202,15 @@ function openPaymentModal(planId){
 
         <!-- Phone Number -->
         <div class="form-group">
-          <label>Your Mobile Money Phone Number</label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <label style="margin-bottom:0">Your Mobile Money Phone Number</label>
+            <span id="phone-carrier-badge" style="display:none;font-size:.74rem;font-weight:700;padding:2px 8px;border-radius:12px"></span>
+          </div>
           <div style="position:relative">
             <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.9rem;font-weight:600">+</span>
             <input class="form-control" id="pay-phone" style="padding-left:28px" placeholder="256771234567" maxlength="15" oninput="validatePhone(this)"/>
           </div>
-          <div style="font-size:.75rem;color:var(--muted);margin-top:5px">USSD prompt will be sent to this phone (e.g. 256702618396)</div>
+          <div style="font-size:.75rem;color:var(--muted);margin-top:5px">USSD prompt will be sent to this phone (e.g. 25677... or 25670...)</div>
           <div id="phone-err" style="color:var(--danger);font-size:.78rem;margin-top:4px;display:none"></div>
         </div>
       </div>
@@ -2463,29 +2466,69 @@ function selectPaymentMethod(method,planId){
   }
 }
 
+function detectUgandaCarrier(phoneRaw){
+  if(!phoneRaw) return null;
+  let digits = String(phoneRaw).replace(/\D/g, '');
+  if(digits.startsWith('256')) digits = digits.slice(3);
+  else if(digits.startsWith('0')) digits = digits.slice(1);
+  if(digits.startsWith('77') || digits.startsWith('78') || digits.startsWith('76')){
+    return { provider: 'MTN_UGANDA', name: 'MTN Uganda', color: '#eab308', bg: 'rgba(234,179,8,0.15)', icon: '🟡' };
+  }
+  if(digits.startsWith('70') || digits.startsWith('75') || digits.startsWith('74')){
+    return { provider: 'AIRTEL_UGANDA', name: 'Airtel Money', color: '#ef4444', bg: 'rgba(239,68,68,0.15)', icon: '🔴' };
+  }
+  return null;
+}
+
 function selectProvider(p){
   window._selectedProvider = p;
-  ['MTN_UGANDA','AIRTEL_UGANDA'].forEach(id=>{
-    const el=document.getElementById('prov-'+id);
-    if(!el) return;
-    if(id===p){
-      el.style.border='2px solid var(--pri)';
-      el.style.background='var(--pri-g)';
+  const mtnEl = document.getElementById('prov-MTN_UGANDA');
+  const airtelEl = document.getElementById('prov-AIRTEL_UGANDA');
+  if(mtnEl){
+    if(p === 'MTN_UGANDA'){
+      mtnEl.style.border = '2px solid #eab308';
+      mtnEl.style.background = 'rgba(234,179,8,0.14)';
     } else {
-      el.style.border='2px solid var(--border)';
-      el.style.background='transparent';
+      mtnEl.style.border = '2px solid var(--border)';
+      mtnEl.style.background = 'transparent';
     }
-  });
+  }
+  if(airtelEl){
+    if(p === 'AIRTEL_UGANDA'){
+      airtelEl.style.border = '2px solid #ef4444';
+      airtelEl.style.background = 'rgba(239,68,68,0.14)';
+    } else {
+      airtelEl.style.border = '2px solid var(--border)';
+      airtelEl.style.background = 'transparent';
+    }
+  }
 }
 
 function validatePhone(input){
-  const val=input.value.replace(/\D/g,'');
-  input.value=val;
-  const err=document.getElementById('phone-err');
-  if(val.length>0&&(val.length<9||val.length>15)){
-    err.style.display='block';err.textContent='Enter a valid number (e.g. 256771234567)';
+  const val = input.value.replace(/\D/g,'');
+  input.value = val;
+  const err = document.getElementById('phone-err');
+  const badge = document.getElementById('phone-carrier-badge');
+  const carrier = detectUgandaCarrier(val);
+  if(carrier){
+    selectProvider(carrier.provider);
+    if(badge){
+      badge.style.display = 'inline-flex';
+      badge.style.alignItems = 'center';
+      badge.style.gap = '4px';
+      badge.style.color = carrier.color;
+      badge.style.background = carrier.bg;
+      badge.style.border = `1px solid ${carrier.color}`;
+      badge.innerHTML = `${carrier.icon} <span>${carrier.name}</span>`;
+    }
   } else {
-    err.style.display='none';
+    if(badge) badge.style.display = 'none';
+  }
+
+  if(val.length > 0 && (val.length < 9 || val.length > 15)){
+    if(err){ err.style.display = 'block'; err.textContent = 'Enter a valid number (e.g. 256771234567 or 0771234567)'; }
+  } else {
+    if(err) err.style.display = 'none';
   }
 }
 
@@ -2498,7 +2541,7 @@ function showPayStep(step){
 
 async function submitXylePayment(planId){
   const phoneRaw=document.getElementById('pay-phone')?.value.trim().replace(/\D/g,'');
-  const provider=window._selectedProvider||'MTN_UGANDA';
+  let provider=window._selectedProvider||'MTN_UGANDA';
   const plan=PLANS.find(p=>p.id===planId);
   if(!plan) return;
 
@@ -2514,6 +2557,13 @@ async function submitXylePayment(planId){
   let account=phoneRaw;
   if(account.startsWith('0')&&account.length===10) account='256'+account.slice(1);
   if(!account.startsWith('256')) account='256'+account;
+
+  // Prefix detection ensures MTN vs Airtel is always accurately routed
+  const carrier = detectUgandaCarrier(account);
+  if(carrier){
+    provider = carrier.provider;
+    window._selectedProvider = provider;
+  }
 
   // Disable btn and show processing
   const btn=document.getElementById('pay-submit-btn');
@@ -6877,7 +6927,7 @@ function renderPaymentsPage(){
           <div style="padding:18px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)">
             <h3 style="font-family:var(--font-h);font-weight:700;margin-bottom:12px">Deposit Funds</h3>
             <div class="form-group"><label>Provider</label><select class="form-control" id="pay-provider"><option value="MTN_UGANDA">MTN Uganda</option><option value="AIRTEL_UGANDA">Airtel Uganda</option></select></div>
-            <div class="form-group"><label>Mobile Money Number</label><input class="form-control" id="pay-account" type="text" placeholder="256771234567"/><p style="font-size:.78rem;color:var(--muted);margin-top:4px">International format without +.</p></div>
+            <div class="form-group"><label>Mobile Money Number</label><input class="form-control" id="pay-account" type="text" placeholder="077... or 25677..." oninput="autoSelectProviderFromInput(this, 'pay-provider')"/><p style="font-size:.78rem;color:var(--muted);margin-top:4px">Accepts 07... or 256... (auto-detects MTN vs Airtel).</p></div>
             <div class="form-group"><label>Amount (UGX)</label><input class="form-control" id="pay-amount" type="number" min="1000" step="1" placeholder="5000"/></div>
             <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doPayment()" id="pay-btn">Deposit</button>
           </div>
@@ -6885,7 +6935,7 @@ function renderPaymentsPage(){
           <div style="padding:18px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)">
             <h3 style="font-family:var(--font-h);font-weight:700;margin-bottom:12px">Withdraw Funds</h3>
             <div class="form-group"><label>Provider</label><select class="form-control" id="wd-provider"><option value="MTN_UGANDA">MTN Uganda</option><option value="AIRTEL_UGANDA">Airtel Uganda</option></select></div>
-            <div class="form-group"><label>Mobile Money Number</label><input class="form-control" id="wd-account" type="text" placeholder="256771234567"/></div>
+            <div class="form-group"><label>Mobile Money Number</label><input class="form-control" id="wd-account" type="text" placeholder="077... or 25677..." oninput="autoSelectProviderFromInput(this, 'wd-provider')"/></div>
             <div class="form-group"><label>Amount (UGX)</label><input class="form-control" id="wd-amount" type="number" min="1000" step="1" placeholder="5000"/></div>
             <button class="btn btn-outline" style="width:100%;justify-content:center;padding:13px" onclick="doWithdrawal()" id="wd-btn">Withdraw</button>
           </div>
@@ -6902,14 +6952,33 @@ function renderPaymentsPage(){
     </div>
   </div>${renderFooter()}`;
 }
+function autoSelectProviderFromInput(input, selectId){
+  const carrier = detectUgandaCarrier(input?.value);
+  if(carrier){
+    const sel = document.getElementById(selectId);
+    if(sel) sel.value = carrier.provider;
+  }
+}
 async function doPayment(){
-  const provider=document.getElementById('pay-provider')?.value||'MTN_UGANDA';
-  const account=document.getElementById('pay-account')?.value.trim()||'';
+  let provider=document.getElementById('pay-provider')?.value||'MTN_UGANDA';
+  let account=document.getElementById('pay-account')?.value.trim()||'';
   const amount=Number(document.getElementById('pay-amount')?.value||0);
   const btn=document.getElementById('pay-btn');
   const err=document.getElementById('pay-err');
   const ok=document.getElementById('pay-ok');
-  if(!/^[1-9]\d{8,14}$/.test(account)){if(err){err.style.display='block';err.textContent='Please enter a valid phone number (e.g. 256771234567).'}return}
+
+  account = account.replace(/\D/g, '');
+  if(account.startsWith('0') && account.length === 10) account = '256' + account.slice(1);
+  if(account.length === 9 && !account.startsWith('256')) account = '256' + account;
+
+  const carrier = detectUgandaCarrier(account);
+  if(carrier){
+    provider = carrier.provider;
+    const sel = document.getElementById('pay-provider');
+    if(sel) sel.value = provider;
+  }
+
+  if(!/^[1-9]\d{8,14}$/.test(account)){if(err){err.style.display='block';err.textContent='Please enter a valid phone number (e.g. 256771234567 or 0771234567).'}return}
   if(!amount||amount<1000){if(err){err.style.display='block';err.textContent='Minimum deposit is 1,000 UGX.'}return}
   if(err) err.style.display='none'; if(ok) ok.style.display='none';
   if(btn){btn.disabled=true;btn.textContent='Processing...'}
@@ -6924,12 +6993,24 @@ async function doPayment(){
   }
 }
 async function doWithdrawal(){
-  const provider=document.getElementById('wd-provider')?.value||'MTN_UGANDA';
-  const account=document.getElementById('wd-account')?.value.trim()||'';
+  let provider=document.getElementById('wd-provider')?.value||'MTN_UGANDA';
+  let account=document.getElementById('wd-account')?.value.trim()||'';
   const amount=Number(document.getElementById('wd-amount')?.value||0);
   const btn=document.getElementById('wd-btn');
   const err=document.getElementById('pay-err');
   const ok=document.getElementById('pay-ok');
+
+  account = account.replace(/\D/g, '');
+  if(account.startsWith('0') && account.length === 10) account = '256' + account.slice(1);
+  if(account.length === 9 && !account.startsWith('256')) account = '256' + account;
+
+  const carrier = detectUgandaCarrier(account);
+  if(carrier){
+    provider = carrier.provider;
+    const sel = document.getElementById('wd-provider');
+    if(sel) sel.value = provider;
+  }
+
   if(!/^[1-9]\d{8,14}$/.test(account)){if(err){err.style.display='block';err.textContent='Please enter a valid phone number.'}return}
   if(!amount||amount<1000){if(err){err.style.display='block';err.textContent='Minimum withdrawal is 1,000 UGX.'}return}
   if(err) err.style.display='none'; if(ok) ok.style.display='none';

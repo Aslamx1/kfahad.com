@@ -470,10 +470,11 @@ async function handleData(request, env, supabase) {
       baseUrl = baseUrl.replace(/\/+$/, "");
 
       let endpoint;
+      let provider = "";
       let options = { headers: { "x-api-key": secretKey } };
       if (action === "xyle_deposit" || action === "xyle_withdrawal") {
         const rawProv = String(data.provider || parsed.data.provider || "");
-        let provider = sanitize(rawProv, 40);
+        provider = sanitize(rawProv, 40);
         if (rawProv.toUpperCase().includes("AIRTEL")) {
           provider = "AIRTEL_UGANDA";
         } else if (rawProv.toUpperCase().includes("MTN")) {
@@ -483,6 +484,14 @@ async function handleData(request, env, supabase) {
         let account = String(data.account || parsed.data.account || "").replace(/\D/g, "");
         if (account.startsWith("0") && account.length === 10) account = "256" + account.slice(1);
         if (account.length === 9 && !account.startsWith("256")) account = "256" + account;
+
+        // Auto-detect Uganda carrier by prefix so MTN vs Airtel is always routed to the right telecom
+        const clean9 = account.startsWith("256") ? account.slice(3) : account;
+        if (clean9.startsWith("77") || clean9.startsWith("78") || clean9.startsWith("76")) {
+          provider = "MTN_UGANDA";
+        } else if (clean9.startsWith("70") || clean9.startsWith("75") || clean9.startsWith("74")) {
+          provider = "AIRTEL_UGANDA";
+        }
 
         const amount = Number(data.amount !== undefined ? data.amount : parsed.data.amount);
         if (!provider || !account || !Number.isFinite(amount) || amount <= 0) {
@@ -510,6 +519,19 @@ async function handleData(request, env, supabase) {
       try {
         const response = await fetch(`${baseUrl}/${endpoint}`, options);
         const result = await response.json().catch(() => ({}));
+        if (!response.ok && result) {
+          const rawMsg = String(result.message || result.error || "");
+          if (rawMsg.includes("timeout")) {
+            const friendly = "Payment prompt timed out on your phone. Please ensure your phone is unlocked, has network signal, and try again.";
+            result.message = friendly;
+            result.error = friendly;
+          } else if (rawMsg.includes("transact failed")) {
+            const provLabel = provider === "MTN_UGANDA" ? "MTN Mobile Money" : (provider === "AIRTEL_UGANDA" ? "Airtel Money" : "Mobile Money");
+            const friendly = `Transaction could not be completed by ${provLabel}. Please ensure this phone number is registered for Mobile Money with active funds and reachable on the network.`;
+            result.message = friendly;
+            result.error = friendly;
+          }
+        }
         return json(request, env, response.status, result);
       } catch (err) {
         return json(request, env, 502, { success: false, error: "Failed to communicate with payment processor." });
