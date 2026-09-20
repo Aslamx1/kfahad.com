@@ -2587,12 +2587,22 @@ async function submitXylePayment(planId){
       try {
         const ref=txRef||txId;
         const statusData=await postDataApi({ action:'xyle_check_status', data:{ ref } }).catch(()=>({}));
-        const rawStatus = statusData.data?.status || statusData.status || statusData.data?.transaction_status || '';
+        let rawStatus = '';
+        if (statusData.message && typeof statusData.message === 'object' && statusData.message.status) {
+          rawStatus = statusData.message.status;
+        } else if (statusData.data && typeof statusData.data === 'object' && statusData.data.status) {
+          rawStatus = statusData.data.status;
+        } else if (statusData.transaction_status) {
+          rawStatus = statusData.transaction_status;
+        } else if (statusData.status && statusData.status !== 'success' && statusData.status !== 'error') {
+          rawStatus = statusData.status;
+        }
         const s = String(rawStatus).toUpperCase();
 
         if(s === 'COMPLETED' || s === 'SUCCESS' || s === 'SUCCESSFUL' || s === 'APPROVED'){
           clearInterval(pollTimer);
-          await onPaymentSuccess(plan, statusData.data || statusData || depositData.data, account, provider, planId);
+          const txInfo = (statusData.message && typeof statusData.message === 'object') ? statusData.message : (statusData.data || statusData || depositData.data);
+          await onPaymentSuccess(plan, txInfo, account, provider, planId);
         } else if(s === 'FAILED' || s === 'CANCELLED' || s === 'DECLINED' || s === 'REJECTED' || s === 'EXPIRED'){
           clearInterval(pollTimer);
           showPayStep(4);
