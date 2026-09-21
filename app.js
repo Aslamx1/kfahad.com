@@ -2168,8 +2168,6 @@ function updateMobileMenu(){
     {label:'Contact',href:'#contact-page',fn:"showPublicPage('contact-page')"},
     {label:'Terms',href:'#terms-page',fn:"showPublicPage('terms-page')"},
     {label:'Privacy',href:'#privacy-page',fn:"showPublicPage('privacy-page')"},
-    {label:'System Status',href:'#system-status',fn:"showPublicPage('system-status')"},
-    {label:'Payments',href:'#payments-page',fn:"showPublicPage('payments-page')"},
   ];
   links.unshift({label:'Search',href:'#',fn:"openSearch()"});
   if(currentUser){
