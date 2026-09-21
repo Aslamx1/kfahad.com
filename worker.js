@@ -33,7 +33,8 @@ const USER_WRITE = new Set(["notifications", "learning_progress", "appointments"
 const BLOCKED_USER_AGENTS = [
   /sqlmap/i, /nikto/i, /nmap/i, /masscan/i, /zmap/i, /dirbuster/i, /gobuster/i,
   /wfuzz/i, /hydra/i, /medusa/i, /john/i, /hashcat/i, /metasploit/i, /exploit/i,
-  /shellcode/i, /webshell/i, /backdoor/i,
+  /shellcode/i, /webshell/i, /backdoor/i, /acunetix/i, /nessus/i, /appscan/i,
+  /qualys/i, /havij/i, /w3af/i, /burpsuite/i,
 ];
 const SUSPICIOUS_PATHS = [
   /\/\.env/i, /\/\.git/i, /\/\.svn/i, /\/\.htaccess/i, /\/wp-admin/i,
@@ -1410,6 +1411,13 @@ function withSecurityHeaders(request, env, response) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // Enforce HTTPS
+    if (url.protocol === "http:" && !url.hostname.includes("localhost") && !url.hostname.includes("127.0.0.1")) {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 301);
+    }
+
     if (!originAllowed(request, env)) return json(request, env, 403, { error: "Request origin is not allowed." });
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: responseHeaders(request, env) });
