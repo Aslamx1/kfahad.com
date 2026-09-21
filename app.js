@@ -102,7 +102,7 @@ const DATA_BACKEND = {
 };
 const CHAT_BACKEND = {
   endpoint: `${API_BASE_URL}/messages`,
-  pollMs: 4000,
+  pollMs: 3000,
   pollHandle: null,
   polling: false,
   apiAvailable: false,
@@ -117,6 +117,8 @@ const SUPABASE_TABLES = {
   jobs: 'jobs',
   knowledge_base: 'knowledge_base',
   live_sessions: 'live_sessions',
+  tv_items: 'tv_items',
+  quizzes: 'quizzes',
   student_reviews: 'student_reviews',
   appointments: 'appointments',
   payments: 'payments',
@@ -272,6 +274,120 @@ async function syncPaymentsFromServer(){
       DB.set('payments', merged);
     }
   } catch(e) {}
+}
+
+async function syncLiveSessionsFromServer(){
+  try {
+    const records = await fetchFromDataAPI('live_sessions');
+    if (records && Array.isArray(records)) {
+      const liveOnly = records.filter(r => r.type !== 'tv');
+      if (liveOnly.length) {
+        const current = DB.get('liveSessions') || [];
+        const remoteIds = new Set(liveOnly.map(r => r.id));
+        const formatted = liveOnly.map(r => ({
+          id: r.id,
+          sessionTitle: r.session_title || r.title || 'Live Session',
+          title: r.title || r.session_title || 'Live Session',
+          description: r.description || '',
+          provider: r.provider || 'youtube-live',
+          videoURL: r.video_url || r.url || '',
+          url: r.url || r.video_url || '',
+          startTime: r.start_time || (r.scheduled_at ? new Date(r.scheduled_at).toISOString() : new Date().toISOString()),
+          endTime: r.end_time || (r.scheduled_at ? new Date(new Date(r.scheduled_at).getTime() + 2*3600000).toISOString() : new Date(Date.now() + 2*3600000).toISOString()),
+          scheduledAt: Number(r.scheduled_at) || Date.now(),
+          replayURL: r.replay_url || '',
+          thumbnailUrl: r.thumbnail_url || '',
+          resourceLinks: typeof r.resource_links === 'string' ? JSON.parse(r.resource_links || '[]') : (r.resource_links || []),
+          requiredCourseId: r.required_course_id || '',
+          requiredLessonId: r.required_lesson_id || '',
+          instructorId: r.instructor_id || '',
+          instructorName: r.instructor_name || 'Admin',
+          createdAt: Number(r.created_at) || Date.now()
+        }));
+        const merged = [
+          ...formatted,
+          ...current.filter(r => !remoteIds.has(r.id))
+        ];
+        DB.set('liveSessions', merged);
+      }
+    }
+  } catch(e) {
+    console.warn('syncLiveSessionsFromServer failed:', e);
+  }
+}
+
+async function syncTVFromServer(){
+  try {
+    let records = await fetchFromDataAPI('tv_items');
+    if (!records || !records.length) {
+      const liveRecs = await fetchFromDataAPI('live_sessions');
+      if (liveRecs && Array.isArray(liveRecs)) {
+        records = liveRecs.filter(r => r.type === 'tv');
+      }
+    }
+    if (records && Array.isArray(records)) {
+      const current = DB.get('tvArchive') || [];
+      const remoteIds = new Set(records.map(r => r.id));
+      const formatted = records.map(r => ({
+        id: r.id,
+        title: r.title || 'KFAHAD TV Broadcast',
+        url: r.url || r.video_url || '',
+        description: r.description || '',
+        category: r.category || 'General',
+        createdAt: Number(r.created_at) || Date.now()
+      }));
+      const merged = [
+        ...formatted,
+        ...current.filter(r => !remoteIds.has(r.id))
+      ];
+      DB.set('tvArchive', merged);
+    }
+  } catch(e) {
+    console.warn('syncTVFromServer failed:', e);
+  }
+}
+
+async function syncQuizzesFromServer(){
+  try {
+    const records = await fetchFromDataAPI('quizzes');
+    if (records && Array.isArray(records)) {
+      const current = DB.get('customQuizzes') || [];
+      const remoteIds = new Set(records.map(r => r.id));
+      const formatted = records.map(r => {
+        let qs = [];
+        try {
+          qs = typeof r.questions === 'string' ? JSON.parse(r.questions) : (r.questions || []);
+        } catch(_) { qs = []; }
+        return {
+          id: r.id,
+          title: r.title || 'Course Quiz',
+          courseId: r.course_id || r.courseId || '',
+          courseTitle: r.course_title || r.courseTitle || '',
+          questions: qs,
+          passingScore: Number(r.passing_score) || 70,
+          timeLimit: Number(r.time_limit) || 0,
+          creatorId: r.creator_id || '',
+          creatorName: r.creator_name || 'Instructor',
+          createdAt: Number(r.created_at) || Date.now()
+        };
+      });
+      const merged = [
+        ...formatted,
+        ...current.filter(r => !remoteIds.has(r.id))
+      ];
+      DB.set('customQuizzes', merged);
+      loadCachedQuizzesIntoMemory();
+    }
+  } catch(e) {
+    console.warn('syncQuizzesFromServer failed:', e);
+  }
+}
+
+function loadCachedQuizzesIntoMemory(){
+  const customs = DB.get('customQuizzes') || [];
+  customs.forEach(q => {
+    if(q && q.id && typeof QUIZZES !== 'undefined') QUIZZES[q.id] = q;
+  });
 }
 
 function normalizeJobRecord(record={}){
@@ -1063,6 +1179,10 @@ function normalizeMessageRecord(msg={}){
     channel: msg.channel || (msg.receiverId ? 'dm' : 'group'),
     receiverId: msg.receiverId || null,
     text: typeof msg.text==='string' ? msg.text : '',
+    audioUrl: msg.audioUrl || msg.audio_url || '',
+    senderName: msg.senderName || msg.sender_name || '',
+    senderRole: msg.senderRole || msg.sender_role || '',
+    senderAvatar: msg.senderAvatar || msg.sender_avatar || '',
     deliveredTo,
     readBy,
     pending:Boolean(msg.pending)
@@ -1834,6 +1954,7 @@ const QUIZZES = {
     {text:'Which HTML element is used to create a bulleted list?',options:['<ol>','<dl>','<ul>','<list>'],correctAnswerIndex:2}
   ]}
 };
+loadCachedQuizzesIntoMemory();
 
 // ================================================================
 // ROUTING
@@ -1905,6 +2026,9 @@ function showDashboard(section='overview'){
     syncCurrentUserFromServer({rerender:true}).catch(()=>{});
     syncAppointmentsFromServer().catch(()=>{});
     syncReviewsFromServer().catch(()=>{});
+    syncLiveSessionsFromServer().catch(()=>{});
+    syncTVFromServer().catch(()=>{});
+    syncQuizzesFromServer().catch(()=>{});
   }
   window.scrollTo({top:0,behavior:'smooth'});
   closeMobileMenu();
@@ -1916,6 +2040,9 @@ function showAdmin(section='overview'){
   syncAppointmentsFromServer().catch(()=>{});
   syncReviewsFromServer().catch(()=>{});
   syncPaymentsFromServer().catch(()=>{});
+  syncLiveSessionsFromServer().catch(()=>{});
+  syncTVFromServer().catch(()=>{});
+  syncQuizzesFromServer().catch(()=>{});
   window.scrollTo({top:0,behavior:'smooth'});
   closeMobileMenu();
 }
@@ -2218,6 +2345,10 @@ function renderPricingCards(standalone=true){
 
 function handlePlanClick(planId){
   if(!currentUser){showPublicPage('register-page');toast('Create an account first to subscribe!','warn');return}
+  if(isStaffUser(currentUser)){
+    toast('Admin and Lecturers have unlimited lifetime access to all courses and do not need to subscribe!','info');
+    return;
+  }
   openPaymentModal(planId);
 }
 
@@ -3800,9 +3931,16 @@ async function submitContact(){
   appts.unshift(newAppt);
   DB.set('appointments',appts);
   saveToDataAPI('appointments', newAppt).catch(()=>{});
+  createNotification({
+    title: `📅 New Appointment Request: ${name}`,
+    body: `${msg} (${email}${phone ? ' · ' + phone : ''})`,
+    targetRole: 'admin',
+    priority: 'urgent',
+    createdAt: Date.now()
+  });
   const s=document.getElementById('contact-success');
   if(s){s.style.display='block'}
-  toast('Appointment request submitted!','success');
+  toast('Appointment request submitted! Routed to admin.','success');
 }
 
 // ================================================================
@@ -4088,12 +4226,23 @@ function renderMyList() {
 
 function renderTV() {
   const content = BayyinahLogic.getTVContent();
-  return `<h1>KFAHAD TV</h1><p style="color:var(--muted)">Exclusive series and educational broadcasts.</p>
-    <div class="course-grid">${content.map(t => `
-      <div class="card">
-        <div style="aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden">${renderVideoMediaHtml(t.url)}</div>
-        <div class="card-body"><h3>${t.title}</h3><p>${t.description||'KFAHAD TV episode'}</p></div>
-      </div>`).join('') || '<div class="empty">No TV series available yet.</div>'}</div>`;
+  const isStaff = isStaffUser(currentUser);
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="font-family:var(--font-h);font-size:1.7rem;font-weight:800;margin-bottom:4px">KFAHAD TV</h1>
+      <p style="color:var(--muted);margin:0">Exclusive masterclasses, industry series, and video broadcasts.</p>
+    </div>
+    ${isStaff ? `<button class="btn btn-primary btn-sm" onclick="openAdminTVModal()">+ Manage TV Broadcasts</button>` : ''}
+  </div>
+  <div class="course-grid">${content.map(t => `
+    <div class="card">
+      <div style="aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden">${renderVideoMediaHtml(t.url)}</div>
+      <div class="card-body">
+        <h3 style="font-size:1rem;margin-bottom:6px">${t.title}</h3>
+        <p style="color:var(--muted);font-size:.83rem">${t.description||'KFAHAD TV broadcast episode'}</p>
+      </div>
+    </div>`).join('') || '<div class="empty" style="grid-column:1/-1"><h3>No TV broadcasts yet</h3><p>Episodes will appear here once published.</p></div>'}</div>`;
 }
 
 function renderCourseCardItem(c) {
@@ -4195,19 +4344,47 @@ function saveTV() {
   if(!isValidCourseVideoUrl(url)){toast('Enter a valid YouTube or direct video URL','error');return;}
   const tv = DB.get('tvArchive') || [];
   const item = {id:uid(), title, url, description:desc, createdAt:Date.now()};
-  tv.push(item);
+  tv.unshift(item);
   DB.set('tvArchive', tv);
-  saveToDataAPI('live_sessions',{id:item.id,title:item.title,url:item.url,description:item.description,created_at:item.createdAt,type:'tv'}).catch(()=>{});
-  closeModal(); toast('Added to KFAHAD TV','success');
-  showAdmin('bayyinah');
+  closeModal();
+  toast('Added to KFAHAD TV and published!','success');
+  if(currentPage === 'dashboard') showDashboard('tv');
+  else showAdmin('bayyinah');
+
+  saveToDataAPI('tv_items', {
+    id: item.id,
+    title: item.title,
+    url: item.url,
+    description: item.description,
+    category: 'General',
+    created_at: item.createdAt
+  }).catch(()=>{});
+
+  saveToDataAPI('live_sessions', {
+    id: item.id,
+    title: item.title,
+    url: item.url,
+    description: item.description,
+    created_at: item.createdAt,
+    type: 'tv'
+  }).catch(()=>{});
+
+  createNotification({
+    title: `📺 New on KFAHAD TV: ${title}`,
+    body: desc || 'Watch the latest broadcast episode now on KFAHAD TV!',
+    targetRole: 'all',
+    priority: 'normal'
+  });
 }
 function deleteTVItem(id){
   if(!confirm('Delete this TV item?')) return;
   const tv = DB.get('tvArchive') || [];
   DB.set('tvArchive', tv.filter(item=>item.id!==id));
+  deleteFromDataAPI('tv_items',id).catch(()=>{});
   deleteFromDataAPI('live_sessions',id).catch(()=>{});
   toast('TV item deleted','success');
-  openAdminTVModal();
+  if(currentPage === 'dashboard') showDashboard('tv');
+  else openAdminTVModal();
 }
 
 // ================================================================
@@ -4304,16 +4481,238 @@ function renderCourseLearn(){
 function renderDashQuizzes(){
   const attempts=DB.get('quizAttempts')||[];
   const myAttempts=attempts.filter(a=>a.userId===currentUser.id).sort((a,b)=>b.submittedAt-a.submittedAt);
+  const isStaff=isStaffUser(currentUser);
+  const allQuizzes=Object.values(QUIZZES);
   return `
-  <h1 style="font-family:var(--font-h);font-size:1.7rem;font-weight:800;margin-bottom:6px">My Quizzes</h1>
-  <p style="color:var(--muted);margin-bottom:24px">Your quiz attempts and scores.</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:28px">
-    ${Object.values(QUIZZES).map(q=>`<div class="card"><div class="card-body"><div style="font-weight:700;margin-bottom:6px">${q.title}</div><div style="font-size:.8rem;color:var(--muted);margin-bottom:12px">${q.questions.length} questions</div><button class="btn btn-primary btn-sm" onclick="openQuizModal('${q.id}','${q.courseId}')">Take Quiz</button></div></div>`).join('')}
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="font-family:var(--font-h);font-size:1.7rem;font-weight:800;margin-bottom:6px">Quizzes</h1>
+      <p style="color:var(--muted);margin-bottom:0">Interactive assessments and course comprehension tests.</p>
+    </div>
+    ${isStaff ? `<button class="btn btn-primary" onclick="openCreateQuizModal()" style="display:flex;align-items:center;gap:8px"><span>+ Create New Quiz</span></button>` : ''}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px">
+    ${allQuizzes.map(q=>{
+      const canManage = isStaff && (currentUser.role==='admin' || q.creatorId===currentUser.id);
+      return `
+      <div class="card">
+        <div class="card-body">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:4px">${q.title}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-bottom:12px">${q.courseTitle || 'All Courses'} &bull; ${q.questions.length} questions</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="openQuizModal('${q.id}','${q.courseId}')" style="flex:1">Take Quiz</button>
+            ${canManage ? `<button class="btn btn-danger btn-sm" onclick="deleteQuiz('${q.id}')" title="Delete Quiz" style="padding:4px 10px">🗑️ Delete</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('') || '<div class="empty" style="grid-column:1/-1"><h3>No quizzes available yet</h3><p>Quizzes created by Admin and Lecturers will appear here.</p></div>'}
   </div>
   <h2 style="font-family:var(--font-h);font-size:1.1rem;font-weight:700;margin-bottom:14px">Quiz History</h2>
   ${myAttempts.length?`<div class="card"><div class="card-body"><div class="table-wrap"><table><thead><tr><th>Quiz</th><th>Score</th><th>Percentage</th><th>Date</th></tr></thead><tbody>
   ${myAttempts.map(a=>`<tr><td>${QUIZZES[a.quizId]?.title||a.quizId}</td><td>${a.score}/${a.totalQuestions}</td><td><span class="badge ${a.score/a.totalQuestions>=0.7?'badge-success':'badge-danger'}">${Math.round(a.score/a.totalQuestions*100)}%</span></td><td style="color:var(--muted);font-size:.82rem">${new Date(a.submittedAt).toLocaleDateString()}</td></tr>`).join('')}
-  </tbody></table></div></div></div>`:`<div class="empty"><svg class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><h3>No quiz attempts yet</h3><p>Take a quiz from your courses to get started.</p></div>`}`;
+  </tbody></table></div></div></div>`:`<div class="empty"><svg class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><h3>No quiz attempts yet</h3><p>Take a quiz to test your knowledge.</p></div>`}`;
+}
+
+window._builderQuestions = [];
+
+function openCreateQuizModal(){
+  const allCourses = getAllCourses();
+  window._builderQuestions = [
+    { text: '', options: ['', '', '', ''], correctIndex: 0 }
+  ];
+  const coursesOptions = allCourses.map(c => `<option value="${c.id}">${c.title}</option>`).join('');
+  const modalContent = `
+    <div class="form-group">
+      <label>Quiz Title *</label>
+      <input class="form-control" id="qz-title" placeholder="e.g. JavaScript Async Mastery Quiz"/>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Associated Course *</label>
+        <select class="form-control" id="qz-course">
+          <option value="general">General / All Courses</option>
+          ${coursesOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Passing Score (%)</label>
+        <input class="form-control" id="qz-passing" type="number" value="70" min="10" max="100"/>
+      </div>
+    </div>
+    <div style="margin-top:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <label style="font-weight:700;font-size:.95rem">Questions & Options</label>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addBuilderQuestion()">+ Add Question</button>
+    </div>
+    <div id="quiz-builder-questions" style="display:flex;flex-direction:column;gap:14px;max-height:420px;overflow-y:auto;padding-right:4px">
+      ${renderBuilderQuestionsHtml()}
+    </div>
+  `;
+  openModal('📝 Create New Quiz', modalContent, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveCustomQuiz()">Save & Publish Quiz</button>
+  `);
+}
+
+function renderBuilderQuestionsHtml(){
+  return window._builderQuestions.map((q, qIndex) => `
+    <div class="card" style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px" data-qindex="${qIndex}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-weight:700;font-size:.85rem">Question ${qIndex + 1}</span>
+        ${window._builderQuestions.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" onclick="removeBuilderQuestion(${qIndex})" style="padding:2px 8px;font-size:.75rem">Remove</button>` : ''}
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input class="form-control" placeholder="Enter question text..." value="${(q.text||'').replace(/"/g, '&quot;')}" onchange="updateBuilderQText(${qIndex}, this.value)"/>
+      </div>
+      <div style="font-size:.76rem;color:var(--muted);margin-bottom:6px">Enter options and select the correct answer:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${[0, 1, 2, 3].map(optIndex => `
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="radio" name="correct-${qIndex}" value="${optIndex}" ${q.correctIndex === optIndex ? 'checked' : ''} onchange="setBuilderQCorrect(${qIndex}, ${optIndex})" title="Select as correct answer"/>
+            <span style="font-weight:700;font-size:.8rem;width:14px">${String.fromCharCode(65 + optIndex)}</span>
+            <input class="form-control" style="flex:1;padding:6px 10px;font-size:.83rem" placeholder="Option ${String.fromCharCode(65 + optIndex)}" value="${(q.options[optIndex] || '').replace(/"/g, '&quot;')}" onchange="updateBuilderQOpt(${qIndex}, ${optIndex}, this.value)"/>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function refreshBuilderQuestionsDom(){
+  const container = document.getElementById('quiz-builder-questions');
+  if(container) container.innerHTML = renderBuilderQuestionsHtml();
+}
+
+function addBuilderQuestion(){
+  syncBuilderFromDom();
+  window._builderQuestions.push({ text: '', options: ['', '', '', ''], correctIndex: 0 });
+  refreshBuilderQuestionsDom();
+  const container = document.getElementById('quiz-builder-questions');
+  if(container) container.scrollTop = container.scrollHeight;
+}
+
+function removeBuilderQuestion(idx){
+  syncBuilderFromDom();
+  if(window._builderQuestions.length <= 1) return;
+  window._builderQuestions.splice(idx, 1);
+  refreshBuilderQuestionsDom();
+}
+
+function syncBuilderFromDom(){
+  const container = document.getElementById('quiz-builder-questions');
+  if(!container) return;
+  const cards = container.querySelectorAll('.card[data-qindex]');
+  cards.forEach((card, idx) => {
+    if(!window._builderQuestions[idx]) return;
+    const textInput = card.querySelector('.form-group input');
+    if(textInput) window._builderQuestions[idx].text = textInput.value;
+    const optInputs = card.querySelectorAll('div > input.form-control');
+    optInputs.forEach((optInput, oIdx) => {
+      window._builderQuestions[idx].options[oIdx] = optInput.value;
+    });
+    const radios = card.querySelectorAll('input[type="radio"]');
+    radios.forEach((r, oIdx) => {
+      if(r.checked) window._builderQuestions[idx].correctIndex = oIdx;
+    });
+  });
+}
+
+function updateBuilderQText(qIdx, val){
+  if(window._builderQuestions[qIdx]) window._builderQuestions[qIdx].text = val;
+}
+function updateBuilderQOpt(qIdx, optIdx, val){
+  if(window._builderQuestions[qIdx]) window._builderQuestions[qIdx].options[optIdx] = val;
+}
+function setBuilderQCorrect(qIdx, optIdx){
+  if(window._builderQuestions[qIdx]) window._builderQuestions[qIdx].correctIndex = Number(optIdx);
+}
+
+async function saveCustomQuiz(){
+  syncBuilderFromDom();
+  const title = document.getElementById('qz-title')?.value.trim();
+  const courseId = document.getElementById('qz-course')?.value || 'general';
+  const passingScore = Number(document.getElementById('qz-passing')?.value) || 70;
+  if(!title){
+    toast('Quiz title is required', 'error');
+    return;
+  }
+  const course = getAllCourses().find(c => c.id === courseId);
+  const courseTitle = course ? course.title : 'General Academy Quiz';
+
+  const sanitizedQuestions = [];
+  for(let i = 0; i < window._builderQuestions.length; i++){
+    const q = window._builderQuestions[i];
+    const qText = (q.text || '').trim();
+    if(!qText){
+      toast(`Question ${i + 1} has no text`, 'error');
+      return;
+    }
+    const cleanOpts = q.options.map(o => (o || '').trim());
+    if(cleanOpts.filter(Boolean).length < 2){
+      toast(`Question ${i + 1} must have at least 2 options`, 'error');
+      return;
+    }
+    sanitizedQuestions.push({
+      text: qText,
+      options: cleanOpts,
+      correctAnswerIndex: Number(q.correctIndex) || 0
+    });
+  }
+
+  const newQuiz = {
+    id: 'quiz-' + uid(),
+    title,
+    courseId,
+    courseTitle,
+    questions: sanitizedQuestions,
+    passingScore,
+    creatorId: currentUser?.id || '',
+    creatorName: currentUser?.name || 'Instructor',
+    createdAt: Date.now()
+  };
+
+  const customs = DB.get('customQuizzes') || [];
+  customs.unshift(newQuiz);
+  DB.set('customQuizzes', customs);
+  QUIZZES[newQuiz.id] = newQuiz;
+
+  closeModal();
+  toast('Quiz published successfully!', 'success');
+  if(currentPage === 'dashboard') showDashboard('quizzes');
+  else if(currentPage === 'admin') showAdmin('quizzes');
+
+  saveToDataAPI('quizzes', {
+    id: newQuiz.id,
+    title: newQuiz.title,
+    course_id: newQuiz.courseId,
+    course_title: newQuiz.courseTitle,
+    questions: newQuiz.questions,
+    passing_score: newQuiz.passingScore,
+    creator_id: newQuiz.creatorId,
+    creator_name: newQuiz.creatorName,
+    created_at: newQuiz.createdAt
+  }).catch(err => console.error('Failed to sync quiz to D1:', err));
+
+  createNotification({
+    title: `📝 New Quiz: ${title}`,
+    body: `A new quiz for ${courseTitle} was created by ${currentUser?.name || 'Instructor'}. Test your knowledge now!`,
+    targetRole: 'all',
+    priority: 'normal'
+  });
+}
+
+async function deleteQuiz(quizId){
+  if(!confirm('Are you sure you want to delete this quiz?')) return;
+  delete QUIZZES[quizId];
+  const customs = (DB.get('customQuizzes') || []).filter(q => q.id !== quizId);
+  DB.set('customQuizzes', customs);
+  await deleteFromDataAPI('quizzes', quizId).catch(()=>{});
+  toast('Quiz deleted', 'success');
+  if(currentPage === 'dashboard') showDashboard('quizzes');
+  else if(currentPage === 'admin') showAdmin('quizzes');
+}
+
+function renderAdminQuizzes(){
+  return renderDashQuizzes();
 }
 
 function renderDashJobs(){
@@ -4487,8 +4886,22 @@ function renderLiveEventState(session){
     : `<div style="font-size:.8rem;color:var(--muted)">No resources uploaded.</div>`;
 
   const countdown = formatLiveCountdown(startMs-nowMs);
-  const mediaFrame = isMeetingProvider(session.provider)
-    ? `<img src="${session.thumbnailUrl}" alt="${session.sessionTitle}" style="width:100%;height:100%;object-fit:cover"/>`
+  const isMeeting = isMeetingProvider(session.provider);
+  const meetingName = session.provider === 'zoom' ? 'Zoom Meeting' : (session.provider === 'google-meet' ? 'Google Meet' : 'Online Classroom');
+  const meetingIcon = session.provider === 'zoom'
+    ? `<svg width="48" height="48" viewBox="0 0 24 24" fill="#2D8CFF"><path d="M16 16.5l4 2.5V5l-4 2.5v9zM2 6v12c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2z"/></svg>`
+    : `<svg width="48" height="48" viewBox="0 0 24 24" fill="#00897B"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5zm4 4h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>`;
+  const mediaFrame = isMeeting
+    ? `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);padding:28px;text-align:center">
+        <div style="margin-bottom:14px;animation:pulse 2s infinite">${meetingIcon}</div>
+        <h3 style="color:#fff;font-size:1.35rem;font-weight:800;margin-bottom:6px">${session.sessionTitle}</h3>
+        <p style="color:var(--muted);font-size:.88rem;max-width:480px;margin-bottom:20px">${meetingName} Online Class &bull; Instructor: ${session.instructorName||'Kandeke Fahad'}</p>
+        <a href="${session.videoURL}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-lg" style="display:inline-flex;align-items:center;gap:12px;padding:14px 34px;font-size:1.05rem;border-radius:12px;font-weight:700;box-shadow:0 8px 24px rgba(37,99,235,.45)">
+          <span>Launch ${meetingName}</span>
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+        </a>
+        <div style="margin-top:12px;font-size:.76rem;color:var(--muted)">Class is live now. Opens directly in ${meetingName} application or browser tab.</div>
+      </div>`
     : (isYouTubeLikeUrl(session.videoURL)
       ? `<iframe src="${session.videoURL}${session.videoURL.includes('?')?'&':'?'}rel=0" style="width:100%;height:100%;border:none" allowfullscreen></iframe>`
       : `<video style="width:100%;height:100%;background:#000" controls src="${session.videoURL}"></video>`);
@@ -4518,9 +4931,9 @@ function renderLiveEventState(session){
       <div style="margin-top:12px">
         ${isPre ? `<div class="badge badge-primary" style="font-size:.86rem">Starts In (UTC): ${countdown}</div>` : ''}
         ${isLive ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span class="badge badge-danger" style="font-size:.86rem;animation:pulse 1.4s infinite">● LIVE</span>
-          ${isMeetingProvider(session.provider) && accessible ? `<a href="${session.videoURL}" target="_blank" class="btn btn-primary btn-sm">Join Live Meeting</a>` : ''}
-          ${accessible?`<button class="btn btn-primary btn-sm" onclick="showDashboard('chat')">Join Chat</button>`:''}
+          <span class="badge badge-danger" style="font-size:.86rem;animation:pulse 1.4s infinite">● LIVE NOW</span>
+          ${isMeeting && accessible ? `<a href="${session.videoURL}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">Join ${meetingName}</a>` : ''}
+          ${accessible?`<button class="btn btn-outline btn-sm" onclick="showDashboard('chat')">Join Chat</button>`:''}
         </div>` : ''}
         ${isPost ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <span class="badge badge-muted">Session Ended</span>
@@ -4672,18 +5085,24 @@ function renderChat(){
   function renderChatMessage(message,{showName=false,showAvatar=false}={}){
     const isMine = message.senderId===currentUser.id;
     const sender = allUsers.find(user=>user.id===message.senderId);
+    const senderDisplayName = message.senderName || sender?.name || 'Member';
     const status = getMessageStatus(message);
-    const safeText = message.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const safeText = (message.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const audioPlayer = message.audioUrl ? `
+      <div class="chat-audio-player" style="margin-top:6px;display:flex;align-items:center;gap:6px">
+        <audio controls src="${message.audioUrl}" style="height:36px;max-width:240px;outline:none"></audio>
+      </div>` : '';
     const avatarContent = showAvatar && !isMine 
-      ? `<div class="chat-avatar">${(sender?.name||'?')[0]}</div>`
+      ? `<div class="chat-avatar">${senderDisplayName[0]}</div>`
       : `<div class="chat-avatar-spacer"></div>`;
     return `
       <div class="chat-row ${isMine?'mine':'theirs'}">
         ${avatarContent}
         <div class="chat-message-stack">
-          ${showName && !isMine ? `<div class="chat-sender-name">${sender?.name||'Unknown'}</div>` : ''}
+          ${showName && !isMine ? `<div class="chat-sender-name">${senderDisplayName}</div>` : ''}
           <div class="msg-bubble ${isMine?'mine':'theirs'}">
-            <div class="chat-bubble-text">${safeText}</div>
+            ${message.text ? `<div class="chat-bubble-text">${safeText}</div>` : ''}
+            ${audioPlayer}
             <div class="chat-bubble-meta ${isMine?'mine':'theirs'}">
               <span>${formatChatTime(message.createdAt)}</span>
               ${isMine && status ? `<span class="chat-status ${status}">${status==='read'?'✓✓':status==='delivered'?'✓✓':'✓'}</span>` : ''}
@@ -4758,21 +5177,149 @@ function renderChat(){
       <div class="chat-header whatsapp-chat-header" style="display:flex;align-items:center;gap:10px">
         <button class="btn btn-ghost btn-sm" onclick="toggleChatSidebar()" id="chat-back-btn">←</button>
         ${mode==='group'
-          ? `<div class="chat-header-presence"><div class="chat-item-avatar">📢</div><div><div>Broadcast Room</div><div class="chat-header-sub">${allUsers.length} members online in this local live chat</div></div></div>`
-          : `<div class="chat-header-presence"><div class="chat-item-avatar">${(dmPartner?.name||'?')[0]}</div><div><div>${dmPartner?.name||'Select a chat'}</div><div class="chat-header-sub">${dmPartner?.role||'Direct message'}</div></div></div>`
+          ? `<div class="chat-header-presence"><div class="chat-item-avatar">📢</div><div><div>Broadcast Room</div><div class="chat-header-sub">${allUsers.length} members connected &bull; Real-time</div></div></div>`
+          : `<div class="chat-header-presence"><div class="chat-item-avatar">${(dmPartner?.name||'?')[0]}</div><div><div>${dmPartner?.name||'Select a chat'}</div><div class="chat-header-sub">${dmPartner?.role||'Direct message'} &bull; Real-time</div></div></div>`
         }
       </div>
       <div class="chat-messages whatsapp-chat-messages" id="chat-msgs">
         ${mode==='group' ? renderChatMessages(groupMessages,{group:true}) : renderChatMessages(dmMessages)}
       </div>
-      <div class="chat-input-area whatsapp-chat-input">
-        <input class="form-control" id="chat-input" placeholder="${mode==='group'?'Send a broadcast message...':'Message '+( dmPartner?.name||'')+'...'}" onkeydown="if(event.key==='Enter')sendChatMsg()" style="flex:1"/>
-        <button class="btn btn-primary" onclick="sendChatMsg()" style="padding:10px 18px;white-space:nowrap" ${mode==='dm'&&!dmPartner?'disabled':''}>
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke-linecap="round"/></svg>
-        </button>
+      <div class="chat-input-area whatsapp-chat-input" id="chat-input-container">
+        <div id="chat-input-controls" style="display:flex;align-items:center;gap:8px;width:100%">
+          <input class="form-control" id="chat-input" placeholder="${mode==='group'?'Send a broadcast message...':'Message '+(dmPartner?.name||'')+'...'}" onkeydown="if(event.key==='Enter')sendChatMsg()" style="flex:1"/>
+          <button id="chat-mic-btn" class="btn btn-outline" onclick="startAudioRecording()" title="Record Voice Message (WhatsApp style)" style="padding:10px 14px;border-radius:50%">
+            🎙️
+          </button>
+          <button class="btn btn-primary" onclick="sendChatMsg()" style="padding:10px 18px;white-space:nowrap" ${mode==='dm'&&!dmPartner?'disabled':''}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div id="chat-recording-controls" style="display:none;align-items:center;justify-content:space-between;width:100%;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:8px 14px">
+          <div style="display:flex;align-items:center;gap:8px;color:var(--danger);font-weight:700;font-size:.88rem">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--danger);animation:pulse 1s infinite"></span>
+            Recording: <span id="chat-recording-timer">0:00</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="cancelAudioRecording()" style="color:var(--muted)">Cancel</button>
+            <button class="btn btn-danger btn-sm" onclick="stopAudioRecording()" style="display:flex;align-items:center;gap:6px">⏹️ Send Audio</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>`;
+}
+
+let chatMediaRecorder = null;
+let chatAudioChunks = [];
+let chatRecordingTimer = null;
+let chatRecordingSeconds = 0;
+
+async function startAudioRecording(){
+  try {
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      toast('Microphone is not supported in this browser','error');
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    chatAudioChunks = [];
+    chatMediaRecorder = new MediaRecorder(stream);
+    chatMediaRecorder.ondataavailable = e => {
+      if(e.data && e.data.size > 0) chatAudioChunks.push(e.data);
+    };
+    chatMediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(chatRecordingTimer);
+      if(!chatAudioChunks.length) return;
+      const blob = new Blob(chatAudioChunks, { type: 'audio/webm' });
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        sendVoiceMessage(reader.result);
+      };
+      reader.readAsDataURL(blob);
+    };
+    chatMediaRecorder.start();
+    chatRecordingSeconds = 0;
+    const controls = document.getElementById('chat-input-controls');
+    const recControls = document.getElementById('chat-recording-controls');
+    if(controls) controls.style.display = 'none';
+    if(recControls) recControls.style.display = 'flex';
+    const timerEl = document.getElementById('chat-recording-timer');
+    if(timerEl) timerEl.textContent = '0:00';
+    chatRecordingTimer = setInterval(() => {
+      chatRecordingSeconds++;
+      const m = Math.floor(chatRecordingSeconds / 60);
+      const s = chatRecordingSeconds % 60;
+      const t = document.getElementById('chat-recording-timer');
+      if(t) t.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
+    }, 1000);
+  } catch(err) {
+    console.error('Audio recording failed:', err);
+    toast('Microphone permission denied or device unavailable', 'error');
+  }
+}
+
+function stopAudioRecording(){
+  if(chatMediaRecorder && chatMediaRecorder.state !== 'inactive'){
+    chatMediaRecorder.stop();
+  }
+  const controls = document.getElementById('chat-input-controls');
+  const recControls = document.getElementById('chat-recording-controls');
+  if(controls) controls.style.display = 'flex';
+  if(recControls) recControls.style.display = 'none';
+}
+
+function cancelAudioRecording(){
+  if(chatMediaRecorder && chatMediaRecorder.state !== 'inactive'){
+    chatMediaRecorder.ondataavailable = null;
+    chatMediaRecorder.onstop = null;
+    chatMediaRecorder.stop();
+  }
+  clearInterval(chatRecordingTimer);
+  const controls = document.getElementById('chat-input-controls');
+  const recControls = document.getElementById('chat-recording-controls');
+  if(controls) controls.style.display = 'flex';
+  if(recControls) recControls.style.display = 'none';
+  toast('Voice note discarded', 'info');
+}
+
+function sendVoiceMessage(audioDataUrl){
+  const messages = getStoredMessages();
+  const mode = window._chatMode || 'group';
+  const otherUsers = (DB.get('users') || []).filter(user => user.id !== currentUser.id);
+  const msg = {
+    id: uid(),
+    senderId: currentUser.id,
+    senderName: currentUser.name,
+    senderRole: currentUser.role,
+    text: '🎤 Voice message',
+    audioUrl: audioDataUrl,
+    createdAt: Date.now(),
+    read: false,
+    readBy: [currentUser.id],
+    deliveredTo: [],
+    pending: true
+  };
+  if(mode === 'group'){
+    msg.channel = 'group';
+    msg.receiverId = null;
+    msg.deliveredTo = otherUsers.map(user => user.id);
+  } else {
+    if(!window._chatWith) return;
+    msg.receiverId = window._chatWith;
+    msg.channel = 'dm';
+    msg.deliveredTo = [window._chatWith];
+  }
+  messages.push(msg);
+  saveStoredMessages(messages);
+  showDashboard('chat');
+  scrollChatToBottom();
+  sendMessageToServer({ ...msg, pending: false }).then(sent => {
+    if(sent){
+      const next = getStoredMessages().map(entry => entry.id === msg.id ? { ...entry, pending: false } : entry);
+      saveStoredMessages(next);
+      toast('Voice message sent!', 'success');
+    }
+  });
 }
 
 function switchChatMode(mode){
@@ -4800,14 +5347,26 @@ function sendChatMsg(){
   const messages=getStoredMessages();
   const mode=window._chatMode||'group';
   const otherUsers=(DB.get('users')||[]).filter(user=>user.id!==currentUser.id);
-  const msg={id:uid(),senderId:currentUser.id,text,createdAt:Date.now(),read:false,readBy:[currentUser.id],deliveredTo:[],pending:true};
+  const msg={
+    id:uid(),
+    senderId:currentUser.id,
+    senderName:currentUser.name,
+    senderRole:currentUser.role,
+    text,
+    createdAt:Date.now(),
+    read:false,
+    readBy:[currentUser.id],
+    deliveredTo:[],
+    pending:true
+  };
   if(mode==='group'){
     msg.channel='group';
     msg.receiverId=null;
     msg.deliveredTo=otherUsers.map(user=>user.id);
   } else {
     if(!window._chatWith) return;
-    msg.receiverId=window._chatWith;msg.channel='dm';
+    msg.receiverId=window._chatWith;
+    msg.channel='dm';
     msg.deliveredTo=[window._chatWith];
   }
   messages.push(msg);
@@ -4840,6 +5399,39 @@ function renderExamples(){
 }
 
 function renderDashAppointments(){
+  refreshCurrentUser();
+  const isStaff = isStaffUser(currentUser);
+  if(isStaff){
+    const allAppts = (DB.get('appointments') || []).sort((a,b)=>b.requestedAt-a.requestedAt);
+    const pendingCount = allAppts.filter(a=>a.status==='Pending').length;
+    return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 style="font-family:var(--font-h);font-size:1.7rem;font-weight:800;margin-bottom:4px">Staff Appointment Desk</h1>
+        <p style="color:var(--muted);margin:0">Admin and lecturers manage incoming student and client consultations.</p>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="showAdmin('appointments')">Manage In Admin Appointments &rarr;</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px">
+      <div class="admin-stat"><div class="admin-stat-num">${allAppts.length}</div><div class="admin-stat-lbl">Total Bookings</div></div>
+      <div class="admin-stat"><div class="admin-stat-num" style="color:var(--warn)">${pendingCount}</div><div class="admin-stat-lbl">Pending Review</div></div>
+      <div class="admin-stat"><div class="admin-stat-num" style="color:var(--success)">${allAppts.filter(a=>a.status==='Confirmed').length}</div><div class="admin-stat-lbl">Confirmed</div></div>
+    </div>
+    ${allAppts.length ? `
+    <div class="card"><div class="card-body"><div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Client / Student</th><th>Message / Topic</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>
+        ${allAppts.slice(0, 15).map(a => `<tr>
+          <td style="font-size:.82rem;color:var(--muted)">${new Date(a.requestedAt).toLocaleDateString()}</td>
+          <td style="font-size:.84rem;font-weight:600">${a.name}<div style="font-size:.76rem;color:var(--muted);font-weight:400">${a.email}${a.phoneNumber?' · '+a.phoneNumber:''}</div></td>
+          <td style="font-size:.83rem">${a.message}</td>
+          <td><span class="badge ${a.status==='Confirmed'?'badge-success':a.status==='Declined'?'badge-danger':'badge-warn'}">${a.status}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="showAdmin('appointments')">Respond</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div></div></div>` : `<div class="empty"><h3>No appointments yet</h3><p>Incoming student appointments will appear here automatically.</p></div>`}
+    `;
+  }
   const appts=(DB.get('appointments')||[]).filter(a=>a.userId===currentUser.id);
   const guest=isGuestUser();
   return `
@@ -5003,6 +5595,7 @@ function renderAdminLayout(){
     notifications:renderAdminNotifications,
     examples:renderAdminExamples,
     'live-sessions':renderAdminLiveSessions,
+    quizzes:renderAdminQuizzes,
   };
   const content=sections[currentSection]?sections[currentSection]():renderAdminOverview();
   const nav=[
@@ -5013,8 +5606,9 @@ function renderAdminLayout(){
     {icon:'💬',label:'Reviews',section:'reviews'},
     {icon:'💳',label:'Payments',section:'payments'},
     {icon:'📚',label:'Courses',section:'courses'},
+    {icon:'📝',label:'Quizzes',section:'quizzes'},
     {icon:'🗓',label:'Appointments',section:'appointments'},
-    {icon:'📝',label:'Blog Posts',section:'blog'},
+    {icon:'✍️',label:'Blog Posts',section:'blog'},
     {icon:'💼',label:'Jobs',section:'jobs'},
     {icon:'📖',label:'Knowledge Base',section:'knowledge-base'},
     {icon:'🔔',label:'Notifications',section:'notifications'},
@@ -6250,38 +6844,77 @@ function renderAdminLiveSessions(){
   </div>`;
 }
 function openLiveModal(){
-  openModal('Schedule Live Session',`
-  <div class="form-group"><label>Session Title</label><input class="form-control" id="ls-title"/></div>
-  <div class="form-group"><label>Description</label><textarea class="form-control" id="ls-desc" rows="2" placeholder="Session overview"></textarea></div>
-  <div class="form-group"><label>Provider</label><select class="form-control" id="ls-provider"><option value="youtube-live">YouTube Live</option><option value="hls">HLS Stream</option><option value="zoom">Zoom Meeting</option><option value="google-meet">Google Meet</option></select></div>
-  <div class="form-group"><label>Live URL</label><input class="form-control" id="ls-url" placeholder="YouTube/HLS/Zoom/Google Meet URL"/></div>
-  <div class="form-row">
-    <div class="form-group"><label>Start Time (UTC)</label><input class="form-control" id="ls-start" type="datetime-local"/></div>
-    <div class="form-group"><label>End Time (UTC)</label><input class="form-control" id="ls-end" type="datetime-local"/></div>
+  const now = new Date();
+  const nowStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const laterStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000 + 2 * 3600000).toISOString().slice(0, 16);
+  openModal('Schedule / Launch Live Class',`
+  <div class="form-group"><label>Session Title *</label><input class="form-control" id="ls-title" placeholder="e.g. Masterclass: Advanced Web Development"/></div>
+  <div class="form-group"><label>Description</label><textarea class="form-control" id="ls-desc" rows="2" placeholder="Session overview and key learning topics"></textarea></div>
+  <div class="form-group"><label>Class Platform / Provider *</label>
+    <select class="form-control" id="ls-provider" onchange="updateLiveUrlPlaceholder(this.value)">
+      <option value="zoom">Zoom Meeting (Live Interactive Online Class)</option>
+      <option value="google-meet">Google Meet (Live Interactive Online Class)</option>
+      <option value="youtube-live">YouTube Live</option>
+      <option value="hls">HLS Stream</option>
+    </select>
   </div>
-  <div class="form-group"><label>Thumbnail URL</label><input class="form-control" id="ls-thumb" placeholder="https://..."/></div>
-  <div class="form-group"><label>Replay URL (optional)</label><input class="form-control" id="ls-replay" placeholder="https://..."/></div>
-  <div class="form-group"><label>Resource Links (one per line: Label|URL)</label><textarea class="form-control" id="ls-resources" rows="3" placeholder="Slides|https://...\nNotes|https://..."></textarea></div>
+  <div class="form-group"><label>Live Class Link / Meeting URL *</label>
+    <input class="form-control" id="ls-url" placeholder="https://zoom.us/j/1234567890 or https://meet.google.com/abc-defg-hij"/>
+  </div>
+  <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:700">
+      <input type="checkbox" id="ls-live-now" checked onchange="toggleLiveNowTimes(this.checked)"/>
+      <span style="color:var(--danger)">● Start Class Immediately (Go Live Now)</span>
+    </label>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Sets class as active and LIVE NOW for the next 2 hours so students can study online right away.</div>
+  </div>
+  <div class="form-row" id="ls-time-row" style="display:none">
+    <div class="form-group"><label>Start Time</label><input class="form-control" id="ls-start" type="datetime-local" value="${nowStr}"/></div>
+    <div class="form-group"><label>End Time</label><input class="form-control" id="ls-end" type="datetime-local" value="${laterStr}"/></div>
+  </div>
+  <div class="form-group"><label>Thumbnail URL (optional)</label><input class="form-control" id="ls-thumb" placeholder="https://..."/></div>
+  <div class="form-group"><label>Replay URL (optional, for after class)</label><input class="form-control" id="ls-replay" placeholder="https://..."/></div>
+  <div class="form-group"><label>Resource Links (one per line: Label|URL)</label><textarea class="form-control" id="ls-resources" rows="2" placeholder="Slides|https://...\nNotes|https://..."></textarea></div>
   <div class="form-row">
     <div class="form-group"><label>Required Course ID (optional)</label><input class="form-control" id="ls-req-course" placeholder="web-11"/></div>
     <div class="form-group"><label>Required Lesson ID (optional)</label><input class="form-control" id="ls-req-lesson" placeholder="wd1-l1"/></div>
   </div>
-  `,`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveLive()">Schedule</button>`);
+  `,`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveLive()">Launch / Schedule Class</button>`);
 }
-function saveLive(){
+
+function toggleLiveNowTimes(isLiveNow){
+  const row = document.getElementById('ls-time-row');
+  if(row) row.style.display = isLiveNow ? 'none' : 'flex';
+}
+
+function updateLiveUrlPlaceholder(provider){
+  const urlEl = document.getElementById('ls-url');
+  if(!urlEl) return;
+  if(provider === 'zoom') urlEl.placeholder = 'https://zoom.us/j/1234567890';
+  else if(provider === 'google-meet') urlEl.placeholder = 'https://meet.google.com/abc-defg-hij';
+  else urlEl.placeholder = 'https://youtube.com/live/... or direct stream link';
+}
+
+async function saveLive(){
   try{
     const title=document.getElementById('ls-title')?.value.trim();
     const description=document.getElementById('ls-desc')?.value.trim()||'';
-    const provider=document.getElementById('ls-provider')?.value||'youtube-live';
-    const url=normalizeYouTubeUrl(document.getElementById('ls-url')?.value.trim()||'');
-    const startVal=document.getElementById('ls-start')?.value;
-    const endVal=document.getElementById('ls-end')?.value;
+    const provider=document.getElementById('ls-provider')?.value||'zoom';
+    const rawUrl=document.getElementById('ls-url')?.value.trim()||'';
+    const isLiveNow=document.getElementById('ls-live-now')?.checked;
+    let startVal=document.getElementById('ls-start')?.value;
+    let endVal=document.getElementById('ls-end')?.value;
+    if(isLiveNow){
+      const now = new Date();
+      startVal = now.toISOString();
+      endVal = new Date(now.getTime() + 2 * 3600000).toISOString();
+    }
     const thumbnailUrl=document.getElementById('ls-thumb')?.value.trim()||'';
     const replayURL=normalizeYouTubeUrl(document.getElementById('ls-replay')?.value.trim()||'');
     const resourcesRaw=document.getElementById('ls-resources')?.value.trim()||'';
     const requiredCourseId=document.getElementById('ls-req-course')?.value.trim()||'';
     const requiredLessonId=document.getElementById('ls-req-lesson')?.value.trim()||'';
-    if(!title||!url||!startVal||!endVal){toast('Title, URL, start time, and end time are required','error');return}
+    if(!title||!rawUrl||!startVal||!endVal){toast('Title, meeting URL, and time are required','error');return}
     const startTime=new Date(startVal).toISOString();
     const endTime=new Date(endVal).toISOString();
     if(new Date(endTime).getTime()<=new Date(startTime).getTime()){toast('End time must be after start time','error');return}
@@ -6292,41 +6925,83 @@ function saveLive(){
         }).filter(resource=>resource.url && /^https?:\/\//i.test(resource.url))
       : [];
     const isMeeting = isMeetingProvider(provider);
-    const zoomOk = /^https?:\/\/([a-z0-9-]+\.)?zoom\.us\/(j|w)\/[A-Za-z0-9?=&._-]+/i.test(url);
-    const meetOk = /^https?:\/\/meet\.google\.com\/[a-z0-9-]+/i.test(url);
+    const zoomOk = /^https?:\/\/([a-z0-9-]+\.)?zoom\.us\/(j|w)\/[A-Za-z0-9?=&._-]+/i.test(rawUrl);
+    const meetOk = /^https?:\/\/meet\.google\.com\/[a-z0-9-]+/i.test(rawUrl);
     if(isMeeting){
-      if(provider==='zoom' && !zoomOk){toast('Enter a valid Zoom meeting URL','error');return}
-      if(provider==='google-meet' && !meetOk){toast('Enter a valid Google Meet URL','error');return}
-    } else if(!isValidCourseVideoUrl(url)){
+      if(provider==='zoom' && !zoomOk){toast('Enter a valid Zoom meeting URL (e.g. https://zoom.us/j/...)','error');return}
+      if(provider==='google-meet' && !meetOk){toast('Enter a valid Google Meet URL (e.g. https://meet.google.com/...)','error');return}
+    } else if(!isValidCourseVideoUrl(rawUrl)){
       toast('Enter a valid live video URL','error');return;
     }
-    const sessions=DB.get('liveSessions')||[];
-    sessions.push({
+    const newSession = {
       id:uid(),
       sessionTitle:title,
       title,
       description,
       provider,
-      videoURL:url,
-      url,
+      videoURL:rawUrl,
+      url:rawUrl,
       startTime,
       endTime,
       scheduledAt:new Date(startTime).getTime(),
       replayURL,
-      thumbnailUrl,
+      thumbnailUrl: thumbnailUrl || (provider==='zoom'?'https://images.unsplash.com/photo-1588196749597-9ff075ee6b5b?w=800&auto=format&fit=crop':provider==='google-meet'?'https://images.unsplash.com/photo-1577563908411-5077b6dc7624?w=800&auto=format&fit=crop':''),
       resourceLinks,
       requiredCourseId,
       requiredLessonId,
       instructorId:currentUser?.id||'',
       instructorName:currentUser?.name||'Admin',
+      type:'live',
       createdAt:Date.now()
+    };
+    const sessions=DB.get('liveSessions')||[];
+    sessions.unshift(newSession);
+    DB.set('liveSessions',sessions);
+    closeModal();
+    toast(isLiveNow ? 'Class launched and LIVE NOW! Students can join.' : 'Session scheduled!','success');
+    if(currentPage==='admin') showAdmin('live-sessions');
+    else showDashboard('live');
+
+    saveToDataAPI('live_sessions', {
+      id: newSession.id,
+      title: newSession.title,
+      session_title: newSession.sessionTitle,
+      description: newSession.description,
+      provider: newSession.provider,
+      url: newSession.url,
+      video_url: newSession.videoURL,
+      start_time: newSession.startTime,
+      end_time: newSession.endTime,
+      scheduled_at: newSession.scheduledAt,
+      replay_url: newSession.replayURL,
+      thumbnail_url: newSession.thumbnailUrl,
+      resource_links: newSession.resourceLinks,
+      required_course_id: newSession.requiredCourseId,
+      required_lesson_id: newSession.requiredLessonId,
+      instructor_id: newSession.instructorId,
+      instructor_name: newSession.instructorName,
+      type: 'live',
+      created_at: newSession.createdAt
+    }).catch(err => console.error('Failed to sync live session to D1:', err));
+
+    createNotification({
+      title: isLiveNow ? `🔴 LIVE CLASS STARTED: ${title}` : `📅 New Live Class Scheduled: ${title}`,
+      body: `${description ? description + ' — ' : ''}Join instructor ${currentUser?.name||'Admin'} online (${provider === 'zoom' ? 'Zoom' : provider === 'google-meet' ? 'Google Meet' : 'Live Stream'})!`,
+      targetRole: 'all',
+      priority: isLiveNow ? 'urgent' : 'important'
     });
-    DB.set('liveSessions',sessions);closeModal();toast('Session scheduled!','success');showAdmin('live-sessions');
   }catch(_){
     toast('Could not schedule live session. Please try again.','error');
   }
 }
-function deleteLive(id){if(!confirm('Delete?'))return;DB.set('liveSessions',(DB.get('liveSessions')||[]).filter(s=>s.id!==id));showAdmin('live-sessions')}
+async function deleteLive(id){
+  if(!confirm('Delete this live session?')) return;
+  DB.set('liveSessions',(DB.get('liveSessions')||[]).filter(s=>s.id!==id));
+  await deleteFromDataAPI('live_sessions', id).catch(()=>{});
+  toast('Live session removed','success');
+  if(currentPage==='admin') showAdmin('live-sessions');
+  else showDashboard('live');
+}
 
 // ================================================================
 // FOOTER
@@ -7253,6 +7928,9 @@ loadCoursesFromSupabase({silent:true,rerender:false}).catch(()=>{});
 syncReviewsFromServer().catch(()=>{});
 syncAppointmentsFromServer().catch(()=>{});
 syncPaymentsFromServer().catch(()=>{});
+syncLiveSessionsFromServer().catch(()=>{});
+syncTVFromServer().catch(()=>{});
+syncQuizzesFromServer().catch(()=>{});
 if(currentUser?.authToken){
   syncCurrentUserFromServer({rerender:true})
     .then(user=>{

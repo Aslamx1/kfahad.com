@@ -12,8 +12,10 @@ const PUBLIC_READ = new Set([
   "student_reviews",
   "examples",
   "pathways",
+  "tv_items",
+  "quizzes",
 ]);
-const PRIVATE_READ = new Set(["notifications", "learning_progress", "appointments", "payments"]);
+const PRIVATE_READ = new Set(["notifications", "learning_progress", "appointments", "payments", "chat_messages"]);
 const ADMIN_WRITE = new Set([
   "courses",
   "blog_posts",
@@ -23,8 +25,11 @@ const ADMIN_WRITE = new Set([
   "student_reviews",
   "examples",
   "pathways",
+  "tv_items",
+  "quizzes",
+  "notifications",
 ]);
-const USER_WRITE = new Set(["notifications", "learning_progress", "appointments", "payments", "student_reviews"]);
+const USER_WRITE = new Set(["notifications", "learning_progress", "appointments", "payments", "student_reviews", "quizzes"]);
 const BLOCKED_USER_AGENTS = [
   /sqlmap/i, /nikto/i, /nmap/i, /masscan/i, /zmap/i, /dirbuster/i, /gobuster/i,
   /wfuzz/i, /hydra/i, /medusa/i, /john/i, /hashcat/i, /metasploit/i, /exploit/i,
@@ -312,8 +317,8 @@ function isHumanMessage(message = {}) {
 }
 
 function normalizeMessage(message = {}) {
-  const readBy = Array.isArray(message.read_by) ? [...new Set(message.read_by.filter(Boolean))] : [];
-  const deliveredTo = Array.isArray(message.delivered_to) ? [...new Set(message.delivered_to.filter(Boolean))] : [];
+  const readBy = Array.isArray(message.read_by) ? [...new Set(message.read_by.filter(Boolean))] : (Array.isArray(message.readBy) ? message.readBy : []);
+  const deliveredTo = Array.isArray(message.delivered_to) ? [...new Set(message.delivered_to.filter(Boolean))] : (Array.isArray(message.deliveredTo) ? message.deliveredTo : []);
   const senderId = message.sender_id || message.senderId;
   const receiverId = message.receiver_id || message.receiverId;
   if (senderId && !readBy.includes(senderId)) readBy.push(senderId);
@@ -321,7 +326,11 @@ function normalizeMessage(message = {}) {
   return {
     id: message.id,
     senderId,
+    senderName: message.sender_name || message.senderName || "",
+    senderRole: message.sender_role || message.senderRole || "",
+    senderAvatar: message.sender_avatar || message.senderAvatar || "",
     text: typeof message.text === "string" ? message.text : "",
+    audioUrl: message.audio_url || message.audioUrl || "",
     createdAt: Number(message.created_at) || Number(message.createdAt) || Date.now(),
     channel: message.channel || (receiverId ? "dm" : "group"),
     receiverId: receiverId || null,
@@ -331,24 +340,55 @@ function normalizeMessage(message = {}) {
   };
 }
 
-async function loadMessages(supabase) {
-  const { data, error } = await supabase.from("messages").select("*").order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data || []).filter(isHumanMessage);
+async function loadMessages(env, supabase) {
+  if (env.DB) {
+    try {
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT 500"
+      ).all();
+      if (Array.isArray(results) && results.length > 0) {
+        return results.map(row => ({
+          id: row.id,
+          senderId: row.sender_id,
+          senderName: row.sender_name || "",
+          senderRole: row.sender_role || "",
+          senderAvatar: row.sender_avatar || "",
+          receiverId: row.receiver_id || null,
+          channel: row.channel || "group",
+          text: row.text || "",
+          audioUrl: row.audio_url || "",
+          readBy: row.read_by ? (typeof row.read_by === "string" ? JSON.parse(row.read_by) : row.read_by) : [],
+          read: Boolean(row.read_by && row.read_by.length > 0),
+          createdAt: Number(row.created_at) || Date.now()
+        })).filter(isHumanMessage);
+      }
+    } catch (e) {
+      console.warn("D1 loadMessages warning:", e.message);
+    }
+  }
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from("messages").select("*").order("created_at", { ascending: true });
+      if (!error && data) return data.filter(isHumanMessage);
+    } catch (e) {
+      console.warn("Supabase loadMessages warning:", e.message);
+    }
+  }
+  return [];
 }
 
 async function handleMessages(request, env, supabase) {
   if (request.method !== "GET" && request.method !== "POST") {
     return json(request, env, 405, { error: "Method not allowed." });
   }
-  if (!supabase) return json(request, env, 503, { error: "Chat is temporarily unavailable." });
+  if (!supabase && !env.DB) return json(request, env, 503, { error: "Chat is temporarily unavailable." });
   const session = await getSession(request, env, supabase);
   if (!session) return json(request, env, 401, { error: "Please sign in to use chat." });
 
   if (request.method === "GET") {
-    const limited = await rateLimited(request, env, "msg_read", 60, 30000);
+    const limited = await rateLimited(request, env, "msg_read", 120, 30000);
     if (limited) return limited;
-    const messages = await loadMessages(supabase);
+    const messages = await loadMessages(env, supabase);
     return json(request, env, 200, { messages: messages.map(normalizeMessage) });
   }
 
@@ -356,55 +396,88 @@ async function handleMessages(request, env, supabase) {
   if (error) return json(request, env, 400, { error });
   const action = sanitize(body.action, 20);
   if (action === "send") {
-    const limited = await rateLimited(request, env, "msg_send", 30, 30000);
+    const limited = await rateLimited(request, env, "msg_send", 60, 30000);
     if (limited) return limited;
     const incoming = body.message || {};
     const message = normalizeMessage({
       ...incoming,
       senderId: session.user_id,
+      senderName: session.name || incoming.senderName || "User",
+      senderRole: session.role || incoming.senderRole || "student",
       text: sanitize(incoming.text, 4000),
+      audioUrl: incoming.audioUrl || incoming.audio_url || "",
     });
-    if (message.id && message.text.trim() && isHumanMessage(message)) {
-      const { error: saveError } = await supabase.from("messages").upsert({
-        id: message.id,
-        sender_id: message.senderId,
-        text: message.text,
-        created_at: message.createdAt || Date.now(),
-        channel: message.channel || (message.receiverId ? "dm" : "group"),
-        receiver_id: message.receiverId || null,
-        read: message.read || false,
-        read_by: message.readBy || [],
-        delivered_to: message.deliveredTo || [],
-      }, { onConflict: "id" });
-      if (saveError) throw saveError;
+    if (message.id && (message.text.trim() || message.audioUrl) && isHumanMessage(message)) {
+      if (env.DB) {
+        try {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO chat_messages (
+              id, sender_id, sender_name, sender_role, sender_avatar, receiver_id, channel, text, audio_url, read_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            message.id,
+            session.user_id,
+            session.name || message.senderName || "User",
+            session.role || message.senderRole || "student",
+            message.senderAvatar || "",
+            message.receiverId || null,
+            message.channel || (message.receiverId ? "dm" : "group"),
+            message.text || "",
+            message.audioUrl || "",
+            JSON.stringify(message.readBy || []),
+            message.createdAt || Date.now()
+          ).run();
+        } catch (e) {
+          console.warn("D1 save message note:", e.message);
+        }
+      }
+      if (supabase) {
+        try {
+          await supabase.from("messages").upsert({
+            id: message.id,
+            sender_id: message.senderId,
+            text: message.text,
+            created_at: message.createdAt || Date.now(),
+            channel: message.channel || (message.receiverId ? "dm" : "group"),
+            receiver_id: message.receiverId || null,
+            read: message.read || false,
+            read_by: message.readBy || [],
+            delivered_to: message.deliveredTo || [],
+          }, { onConflict: "id" });
+        } catch (_) {}
+      }
     }
-    const messages = await loadMessages(supabase);
+    const messages = await loadMessages(env, supabase);
     return json(request, env, 200, { messages: messages.map(normalizeMessage) });
   }
   if (action === "read") {
-    const limited = await rateLimited(request, env, "msg_read_state", 60, 30000);
+    const limited = await rateLimited(request, env, "msg_read_state", 100, 30000);
     if (limited) return limited;
     const viewerId = session.user_id;
     const channel = sanitize(body.channel, 20);
     const userId = body.userId ? sanitize(body.userId, 100) : null;
     if (!channel) return json(request, env, 400, { error: "Channel is required." });
-    const messages = await loadMessages(supabase);
-    for (const message of messages) {
-      const normalized = normalizeMessage(message);
-      const matchesGroup = channel === "group" && normalized.channel === "group" && normalized.senderId !== viewerId;
-      const matchesDm = channel === "dm" && normalized.channel === "dm"
-        && normalized.senderId === userId && normalized.receiverId === viewerId;
-      if (!matchesGroup && !matchesDm) continue;
-      const readBy = [...new Set([...(message.read_by || []), viewerId])];
-      const { error: updateError } = await supabase.from("messages")
-        .update({ read_by: readBy, read: true }).eq("id", normalized.id);
-      if (updateError) throw updateError;
+    if (env.DB) {
+      try {
+        const msgs = await loadMessages(env, null);
+        for (const message of msgs) {
+          const normalized = normalizeMessage(message);
+          const matchesGroup = channel === "group" && normalized.channel === "group" && normalized.senderId !== viewerId;
+          const matchesDm = channel === "dm" && normalized.channel === "dm"
+            && normalized.senderId === userId && normalized.receiverId === viewerId;
+          if (!matchesGroup && !matchesDm) continue;
+          const readBy = [...new Set([...(normalized.readBy || []), viewerId])];
+          await env.DB.prepare("UPDATE chat_messages SET read_by = ? WHERE id = ?").bind(JSON.stringify(readBy), normalized.id).run();
+        }
+      } catch (e) {
+        console.warn("D1 mark read error:", e.message);
+      }
     }
-    const updated = await loadMessages(supabase);
+    const updated = await loadMessages(env, supabase);
     return json(request, env, 200, { messages: updated.map(normalizeMessage) });
   }
   if (action === "health") {
-    return json(request, env, 200, { ok: true, provider: "supabase", timestamp: Date.now() });
+    return json(request, env, 200, { ok: true, provider: env.DB ? "cloudflare-d1" : "supabase", timestamp: Date.now() });
   }
   return json(request, env, 400, { error: "Unknown action." });
 }
@@ -528,15 +601,21 @@ async function handleData(request, env, supabase) {
 
     if (env.DB) {
       try {
-        const validTables = ["payments", "appointments", "student_reviews", "learning_progress"];
+        const validTables = ["payments", "appointments", "student_reviews", "learning_progress", "live_sessions", "tv_items", "quizzes", "notifications"];
         if (validTables.includes(table)) {
           let sql = `SELECT * FROM ${table}`;
           const params = [];
-          if (PRIVATE_READ.has(table) && session && String(session.role).toLowerCase() !== "admin") {
+          const userRole = String(session?.role || "").toLowerCase();
+          const isStaff = userRole === "admin" || userRole === "instructor" || userRole === "lecturer";
+          if (PRIVATE_READ.has(table) && session && !isStaff) {
             sql += ` WHERE user_id = ?`;
             params.push(session.user_id);
           }
-          sql += ` ORDER BY created_at DESC`;
+          if (table === "live_sessions") {
+            sql += ` ORDER BY scheduled_at ASC, created_at DESC`;
+          } else {
+            sql += ` ORDER BY created_at DESC`;
+          }
           const query = env.DB.prepare(sql);
           const { results } = params.length ? await query.bind(...params).all() : await query.all();
           if (Array.isArray(results)) {
@@ -565,10 +644,14 @@ async function handleData(request, env, supabase) {
 
   const limited = await rateLimited(request, env, "data_write", 60, 60000);
   if (limited) return limited;
-  const session = await getSession(request, env, supabase);
+  let session = await getSession(request, env, supabase);
+  if (!session && action === "create" && table === "appointments") {
+    session = { user_id: "guest-" + crypto.randomUUID().slice(0, 8), name: sanitize(data?.name, 80) || "Guest", role: "guest" };
+  }
   if (!session) return json(request, env, 401, { error: "Please sign in." });
   const role = String(session.role || "").toLowerCase();
-  const canWrite = (ADMIN_WRITE.has(table) && (role === "admin" || role === "instructor")) || USER_WRITE.has(table);
+  const isStaff = role === "admin" || role === "instructor" || role === "lecturer";
+  const canWrite = (ADMIN_WRITE.has(table) && isStaff) || USER_WRITE.has(table);
   if (!canWrite) return json(request, env, 403, { error: "You don't have permission to modify this resource." });
 
   if (action === "create") {
@@ -628,6 +711,63 @@ async function handleData(request, env, supabase) {
             JSON.stringify(record.completedLessons || record.completed || []),
             Number(record.lastWatched) || Date.now(), Number(record.percentComplete) || 0, Date.now()
           ).run();
+        } else if (table === "live_sessions") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO live_sessions (
+              id, title, session_title, description, provider, url, video_url, start_time, end_time,
+              scheduled_at, replay_url, thumbnail_url, resource_links, required_course_id, required_lesson_id,
+              instructor_id, instructor_name, type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.title || record.sessionTitle || "", record.sessionTitle || record.title || "",
+            record.description || "", record.provider || "youtube-live", record.url || record.videoURL || "",
+            record.videoURL || record.url || "", record.startTime || record.start_time || "",
+            record.endTime || record.end_time || "", Number(record.scheduledAt || record.scheduled_at) || Date.now(),
+            record.replayURL || record.replay_url || "", record.thumbnailUrl || record.thumbnail_url || "",
+            typeof record.resourceLinks === "string" ? record.resourceLinks : JSON.stringify(record.resourceLinks || []),
+            record.requiredCourseId || record.required_course_id || "", record.requiredLessonId || record.required_lesson_id || "",
+            record.instructorId || record.instructor_id || session.user_id || "",
+            record.instructorName || record.instructor_name || session.name || "Admin",
+            record.type || "live", record.createdAt || record.created_at || Date.now()
+          ).run();
+        } else if (table === "tv_items") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO tv_items (id, title, url, description, category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.title || "", record.url || "", record.description || "",
+            record.category || "General", record.createdAt || record.created_at || Date.now()
+          ).run();
+        } else if (table === "quizzes") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO quizzes (
+              id, title, course_id, course_title, questions, passing_score, time_limit, creator_id, creator_name, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.title || "", record.courseId || record.course_id || "",
+            record.courseTitle || record.course_title || "",
+            typeof record.questions === "string" ? record.questions : JSON.stringify(record.questions || []),
+            Number(record.passingScore || record.passing_score) || 70,
+            Number(record.timeLimit || record.time_limit) || 15,
+            record.creatorId || record.creator_id || session.user_id || "",
+            record.creatorName || record.creator_name || session.name || "Instructor",
+            record.createdAt || record.created_at || Date.now()
+          ).run();
+        } else if (table === "notifications") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO notifications (
+              id, title, body, target_role, target_user_id, priority, read, read_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.title || "", record.body || "",
+            record.targetRole || record.target_role || "all",
+            record.targetUserId || record.target_user_id || "",
+            record.priority || "normal",
+            record.read ? 1 : 0,
+            typeof record.readBy === "string" ? record.readBy : JSON.stringify(record.readBy || []),
+            record.createdAt || record.created_at || Date.now(),
+            record.updatedAt || record.updated_at || Date.now()
+          ).run();
         }
       } catch (e) {
         console.warn(`D1 create failed for ${table}:`, e.message);
@@ -655,6 +795,12 @@ async function handleData(request, env, supabase) {
           }
         } else if (table === "payments") {
           if (data.status) await env.DB.prepare("UPDATE payments SET status = ? WHERE id = ?").bind(data.status, id).run();
+        } else if (table === "notifications") {
+          if (data.read_by !== undefined || data.readBy !== undefined) {
+            const readBy = data.read_by || data.readBy;
+            const readByStr = typeof readBy === "string" ? readBy : JSON.stringify(readBy);
+            await env.DB.prepare("UPDATE notifications SET read_by = ?, read = 1, updated_at = ? WHERE id = ?").bind(readByStr, Date.now(), id).run();
+          }
         }
       } catch (e) {
         console.warn(`D1 update failed for ${table}:`, e.message);
@@ -676,7 +822,7 @@ async function handleData(request, env, supabase) {
   if (action === "delete" && id) {
     if (env.DB) {
       try {
-        const validTables = ["payments", "appointments", "student_reviews", "learning_progress"];
+        const validTables = ["payments", "appointments", "student_reviews", "learning_progress", "live_sessions", "tv_items", "quizzes", "notifications"];
         if (validTables.includes(table)) {
           await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
         }
