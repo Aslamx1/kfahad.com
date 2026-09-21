@@ -395,40 +395,6 @@ exports.handler = async (event) => {
         return jsonResponse(200, { user: buildSafeUser(adminUser), token: session.token, csrfToken: session.csrfToken });
       }
 
-      if ((normInput === "student@kfahad.com" || normInput === "student@test.com" || normInput === "student") && (password === "Student.login." || password === "test123")) {
-        const studentUser = {
-          id: "student-alex",
-          name: "Alex Johnson",
-          email: "student@kfahad.com",
-          username: "student",
-          role: "student",
-          bio: "Eager learner",
-          last_login_at: Date.now()
-        };
-        const session = (await createSession(studentUser.id, event)) || {
-          token: crypto.randomBytes(32).toString("hex"),
-          csrfToken: crypto.randomBytes(32).toString("hex")
-        };
-        return jsonResponse(200, { user: buildSafeUser(studentUser), token: session.token, csrfToken: session.csrfToken });
-      }
-
-      if ((normInput === "lecturer@kfahad.com" || normInput === "lecturer@test.com" || normInput === "lecturer") && (password === "Lecturer.login." || password === "test123")) {
-        const lecturerUser = {
-          id: "lecturer-musa",
-          name: "Dr. Musa Ssekandi",
-          email: "lecturer@kfahad.com",
-          username: "lecturer",
-          role: "instructor",
-          bio: "Senior Lecturer at KFAHAD Academy",
-          last_login_at: Date.now()
-        };
-        const session = (await createSession(lecturerUser.id, event)) || {
-          token: crypto.randomBytes(32).toString("hex"),
-          csrfToken: crypto.randomBytes(32).toString("hex")
-        };
-        return jsonResponse(200, { user: buildSafeUser(lecturerUser), token: session.token, csrfToken: session.csrfToken });
-      }
-
       const user = await getUserByIdentifier(inputValue);
       if (!user || isLockedOut(user)) {
         return jsonResponse(401, { error: genericAuthError() });

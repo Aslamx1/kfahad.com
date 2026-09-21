@@ -3352,17 +3352,9 @@ function renderLoginPage(){
       <p style="color:var(--muted);font-size:.875rem">Sign in to continue your learning journey</p>
     </div>
     <div class="card"><div class="card-body">
-      <div style="display:flex;gap:8px;margin-bottom:14px;background:var(--bg);border-radius:10px;padding:4px">
-        <button class="login-type-btn active" id="login-tab-student" onclick="switchLoginType('student')" style="flex:1;padding:10px;border:none;background:var(--bg2);border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--txt)">🎓 Student</button>
-        <button class="login-type-btn" id="login-tab-lecturer" onclick="switchLoginType('lecturer')" style="flex:1;padding:10px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--muted)">👨‍🏫 Lecturer</button>
-        <button class="login-type-btn" id="login-tab-admin" onclick="switchLoginType('admin')" style="flex:1;padding:10px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;color:var(--muted)">⚙️ Admin</button>
-      </div>
-      <div id="login-preset-hint" style="margin-bottom:14px;padding:9px 12px;background:rgba(59,130,246,.08);border-left:3px solid var(--pri);border-radius:6px;font-size:.8rem;color:var(--txt);line-height:1.4">
-        🎓 <strong>Student:</strong> student@kfahad.com &bull; Pass: <code>Student.login.</code>
-      </div>
       <div id="login-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
-      <div class="form-group"><label>Email or Username</label><input class="form-control" id="l-email" type="text" placeholder="you@example.com or username" value="student@kfahad.com"/></div>
-      <div class="form-group"><label>Password</label><input class="form-control" id="l-pw" type="password" placeholder="Your password" value="Student.login."/></div>
+      <div class="form-group"><label>Email or Username</label><input class="form-control" id="l-email" type="text" placeholder="you@example.com or username" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('l-pw')?.focus()"/></div>
+      <div class="form-group"><label>Password</label><input class="form-control" id="l-pw" type="password" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
       <button id="login-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doLogin()">Sign In</button>
       <div style="margin-top:14px;text-align:center">
         <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="doGoogleLogin()">
@@ -3385,41 +3377,10 @@ function renderLoginPage(){
 }
 
 function switchLoginType(type){
-  document.querySelectorAll('.login-type-btn').forEach(btn=>{
-    btn.classList.remove('active');
-    btn.style.color='var(--muted)';
-    btn.style.background='transparent';
-  });
-  const activeBtn = document.getElementById('login-tab-'+type);
-  if(activeBtn){
-    activeBtn.classList.add('active');
-    activeBtn.style.color='var(--txt)';
-    activeBtn.style.background='var(--bg2)';
-  }
   window._loginType = type;
-  const emailInput = document.getElementById('l-email');
-  const pwInput = document.getElementById('l-pw');
-  const hint = document.getElementById('login-preset-hint');
-  const err = document.getElementById('login-err');
-  if(err) err.style.display = 'none';
-
-  if(type === 'admin'){
-    if(emailInput) emailInput.value = 'Admin.kfahad@gmail.com';
-    if(pwInput) pwInput.value = 'Kfahad.login.';
-    if(hint) hint.innerHTML = '⚙️ <strong>Admin Account:</strong> Admin.kfahad@gmail.com &bull; Pass: <code>Kfahad.login.</code>';
-  } else if(type === 'lecturer'){
-    if(emailInput) emailInput.value = 'lecturer@kfahad.com';
-    if(pwInput) pwInput.value = 'Lecturer.login.';
-    if(hint) hint.innerHTML = '👨‍🏫 <strong>Lecturer Account:</strong> lecturer@kfahad.com &bull; Pass: <code>Lecturer.login.</code>';
-  } else {
-    if(emailInput) emailInput.value = 'student@kfahad.com';
-    if(pwInput) pwInput.value = 'Student.login.';
-    if(hint) hint.innerHTML = '🎓 <strong>Student Account:</strong> student@kfahad.com &bull; Pass: <code>Student.login.</code>';
-  }
 }
 
 function confirmAdminLogin(){
-  switchLoginType('admin');
   doLogin();
 }
 
@@ -3428,21 +3389,13 @@ async function doLogin(){
   let pw=document.getElementById('l-pw')?.value;
   const err=document.getElementById('login-err');
   const loginType = window._loginType || 'student';
-  if(!email || !pw){
-    if(loginType === 'admin'){
-      email = email || 'Admin.kfahad@gmail.com';
-      pw = pw || 'Kfahad.login.';
-    } else if(loginType === 'lecturer'){
-      email = email || 'lecturer@kfahad.com';
-      pw = pw || 'Lecturer.login.';
-    } else {
-      email = email || 'student@kfahad.com';
-      pw = pw || 'Student.login.';
+  if(!email||!pw){
+    if(err){
+      err.style.display='block';
+      err.textContent='Please enter both your email/username and password.';
     }
-    if(document.getElementById('l-email')) document.getElementById('l-email').value = email;
-    if(document.getElementById('l-pw')) document.getElementById('l-pw').value = pw;
+    return;
   }
-  if(!email||!pw){if(err){err.style.display='block';err.textContent='Please fill all fields'}return}
   const submitBtn = document.getElementById('login-submit-btn');
   const origBtnText = submitBtn ? submitBtn.textContent : '';
   if(submitBtn) {
