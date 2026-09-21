@@ -929,9 +929,12 @@ const COURSES = [
   {id:'py-01',track:'python-mastery',title:'Python for Beginners',description:'Learn the world\'s most popular language for automation and data.',videoUrl:'https://www.youtube.com/embed/rfscVS0vtbw',category:'Python Programming',imageUrl:'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=80',modules:[]}
 ];
 
-// Helper — merges built-in + admin-created courses
+// Helper — merges built-in + admin-created courses (custom courses override built-ins with same ID)
 function getAllCourses(){
-  return [...COURSES, ...(DB.get('customCourses')||[])];
+  const custom = DB.get('customCourses') || [];
+  const customIds = new Set(custom.map(c => c.id));
+  const builtIns = COURSES.filter(c => !customIds.has(c.id));
+  return [...custom, ...builtIns];
 }
 
 // ================================================================
@@ -1814,19 +1817,91 @@ function isYouTubeLikeUrl(url=''){
   const normalized = normalizeYouTubeUrl(url);
   return normalized.includes('youtube.com/embed/');
 }
+const VideoStorage = {
+  _db: null,
+  async getDB(){
+    if(this._db) return this._db;
+    return new Promise((resolve, reject)=>{
+      if(!window.indexedDB){
+        reject(new Error('IndexedDB not supported'));
+        return;
+      }
+      const req = indexedDB.open('kfahad_media_db', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains('videos')){
+          db.createObjectStore('videos', { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => {
+        this._db = req.result;
+        resolve(this._db);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async saveVideo(id, blob, name){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction('videos', 'readwrite');
+        const store = tx.objectStore('videos');
+        store.put({ id, blob, name: name || blob.name || 'video', size: blob.size, type: blob.type, updatedAt: Date.now() });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){
+      console.warn('VideoStorage.saveVideo error:', e);
+      return false;
+    }
+  },
+  async getVideo(id){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction('videos', 'readonly');
+        const store = tx.objectStore('videos');
+        const req = store.get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(_){
+      return null;
+    }
+  },
+  async getBlobUrl(id){
+    const record = await this.getVideo(id);
+    if(record && record.blob){
+      return URL.createObjectURL(record.blob);
+    }
+    return null;
+  }
+};
+
 function renderVideoMediaHtml(url=''){
-  const normalized = normalizeYouTubeUrl(url);
+  const raw = String(url||'').trim();
+  if(!raw) return '';
+  if(raw.startsWith('local-video:')){
+    const tempId = 'vid-' + Math.random().toString(36).slice(2);
+    setTimeout(async () => {
+      const bUrl = await VideoStorage.getBlobUrl(raw);
+      const el = document.getElementById(tempId);
+      if(el && bUrl) el.src = bUrl;
+    }, 15);
+    return `<video id="${tempId}" style="width:100%;height:100%;background:#000;border-radius:8px" controls playsinline></video>`;
+  }
+  const normalized = normalizeYouTubeUrl(raw);
   const safeUrl = String(normalized||'').replace(/"/g,'&quot;');
-  if(!safeUrl) return '';
   if(isYouTubeLikeUrl(normalized)){
     return `<iframe src="${safeUrl.includes('?')?safeUrl+'&rel=0':safeUrl+'?rel=0'}" style="width:100%;height:100%;border:none" allowfullscreen></iframe>`;
   }
-  return `<video style="width:100%;height:100%;background:#000" controls src="${safeUrl}"></video>`;
+  return `<video style="width:100%;height:100%;background:#000;border-radius:8px" controls playsinline src="${safeUrl}"></video>`;
 }
+
 function isValidCourseVideoUrl(url=''){
   const value = String(url||'').trim();
   if(!value) return false;
-  if(value.startsWith('data:video/')) return true;
+  if(value.startsWith('data:video/') || value.startsWith('blob:') || value.startsWith('local-video:')) return true;
   const normalized = normalizeYouTubeUrl(value);
   if(isYouTubeLikeUrl(normalized)) return true;
   try{
@@ -1837,6 +1912,7 @@ function isValidCourseVideoUrl(url=''){
     return false;
   }
 }
+
 async function uploadCourseVideoToServer(fileData,publicId){
   try{
     const response = await fetch(COURSE_VIDEO_UPLOAD_BACKEND.endpoint,{
@@ -1855,84 +1931,151 @@ async function uploadCourseVideoToServer(fileData,publicId){
   }
   return { secureUrl:fileData };
 }
+
 async function handleVideoUpload(file, targetId){
   if(!file) return;
-  if(!String(file.type||'').startsWith('video/')){toast('Please choose a valid video file','error');return;}
-  if(file.size > 60*1024*1024){toast('Video file must be under 60MB when uploaded through Cloudflare','error');return;}
-  const preview=document.getElementById(targetId);
-  if(preview){
-    preview.innerHTML=`<div style="font-size:.8rem;color:var(--muted)">Uploading video...</div>`;
+  if(!String(file.type||'').startsWith('video/') && !file.name.match(/\.(mp4|webm|mov|mkv|avi|m4v|ogv)$/i)){
+    toast('Please choose a valid video file (MP4, WebM, MOV)','error');
+    return;
   }
-  const reader=new FileReader();
-  reader.onload=async e=>{
-    const dataUrl=e.target.result;
-    try{
-      const upload=await uploadCourseVideoToServer(dataUrl,`course_video_${Date.now()}`);
-      const videoUrl=upload?.secureUrl||dataUrl;
-      if(window._CB) window._CB.videoUrl=videoUrl;
-      const videoInput=document.getElementById('cb-video');
-      if(videoInput){
-        videoInput.value = videoUrl.startsWith('http') ? videoUrl : '';
-      }
-      if(preview){
-        preview.innerHTML=`<div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden">${renderVideoMediaHtml(videoUrl)}</div>
-          <div style="font-size:.75rem;color:var(--success);margin-top:6px">Video ready: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)</div>`;
-      }
-      if(videoUrl.startsWith('data:')) toast('Video saved locally. Publish still works.','warn');
-      else toast('Video uploaded successfully','success');
-    }catch(_){
-      if(preview){
-        preview.innerHTML=`<div style="font-size:.8rem;color:var(--danger)">Upload failed. Try again.</div>`;
-      }
-      toast('Failed to upload video file','error');
-    }
-  };
-  reader.onerror=()=>{
-    if(preview){
-      preview.innerHTML=`<div style="font-size:.8rem;color:var(--danger)">Could not read the selected file.</div>`;
-    }
-    toast('Failed to read video file','error');
-  };
+  const MAX_VIDEO_BYTES = 1024 * 1024 * 1024; // 1 GB
+  if(file.size > MAX_VIDEO_BYTES){
+    toast('Video file exceeds maximum size of 1GB','error');
+    return;
+  }
+  const preview = document.getElementById(targetId);
+  const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+  if(preview){
+    preview.innerHTML = `<div style="font-size:.85rem;color:var(--pri);padding:14px;background:rgba(59,130,246,.08);border-radius:8px">⏳ Processing video: <strong>${file.name}</strong> (${sizeMB}MB)... Please wait</div>`;
+  }
+  
+  const videoId = `local-video:course_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+  const objectUrl = URL.createObjectURL(file);
+  if(window._CB) window._CB.videoUrl = videoId;
+  const videoInput = document.getElementById('cb-video');
+  if(videoInput) videoInput.value = '';
+
+  await VideoStorage.saveVideo(videoId, file, file.name);
+
+  if(file.size <= 60 * 1024 * 1024){
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try{
+        const upload = await uploadCourseVideoToServer(e.target.result, `course_video_${Date.now()}`);
+        if(upload?.secureUrl && upload.secureUrl.startsWith('http')){
+          if(window._CB) window._CB.videoUrl = upload.secureUrl;
+          if(videoInput) videoInput.value = upload.secureUrl;
+          toast('Video synced to cloud storage!','success');
+        }
+      }catch(_){}
+    };
+    reader.readAsDataURL(file);
+  }
+
+  if(preview){
+    preview.innerHTML = `
+      <div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000">
+        <video style="width:100%;height:100%" controls playsinline src="${objectUrl}"></video>
+      </div>
+      <div style="font-size:.78rem;color:var(--success);margin-top:6px;display:flex;align-items:center;gap:6px">
+        <span>✓ Video ready:</span> <strong>${file.name}</strong> <span>(${sizeMB}MB)</span>
+      </div>`;
+  }
+  toast(`Video attached successfully! (${sizeMB}MB)`,'success');
 }
 
 async function handleLessonVideoUpload(file, moduleIndex, lessonIndex, targetId){
   if(!file) return;
-  if(!String(file.type||'').startsWith('video/')){toast('Please choose a valid video file','error');return;}
-  if(file.size > 60*1024*1024){toast('Video file must be under 60MB when uploaded through Cloudflare','error');return;}
+  if(!String(file.type||'').startsWith('video/') && !file.name.match(/\.(mp4|webm|mov|mkv|avi|m4v|ogv)$/i)){
+    toast('Please choose a valid video file (MP4, WebM, MOV)','error');
+    return;
+  }
+  const MAX_VIDEO_BYTES = 1024 * 1024 * 1024; // 1 GB
+  if(file.size > MAX_VIDEO_BYTES){
+    toast('Video file exceeds maximum size of 1GB','error');
+    return;
+  }
   const preview = document.getElementById(targetId);
+  const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
   if(preview){
-    preview.innerHTML=`<div style="font-size:.8rem;color:var(--muted)">Uploading lesson video...</div>`;
+    preview.innerHTML = `<div style="font-size:.85rem;color:var(--pri);padding:10px;background:rgba(59,130,246,.08);border-radius:6px">⏳ Processing lesson video: <strong>${file.name}</strong> (${sizeMB}MB)...</div>`;
+  }
+
+  const videoId = `local-video:lesson_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+  const objectUrl = URL.createObjectURL(file);
+  if(window._CB && window._CB.modules[moduleIndex] && window._CB.modules[moduleIndex].lessons[lessonIndex]){
+    window._CB.modules[moduleIndex].lessons[lessonIndex].content = videoId;
+  }
+
+  await VideoStorage.saveVideo(videoId, file, file.name);
+
+  if(file.size <= 60 * 1024 * 1024){
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try{
+        const upload = await uploadCourseVideoToServer(e.target.result, `lesson_video_${Date.now()}`);
+        if(upload?.secureUrl && upload.secureUrl.startsWith('http')){
+          if(window._CB && window._CB.modules[moduleIndex] && window._CB.modules[moduleIndex].lessons[lessonIndex]){
+            window._CB.modules[moduleIndex].lessons[lessonIndex].content = upload.secureUrl;
+          }
+        }
+      }catch(_){}
+    };
+    reader.readAsDataURL(file);
+  }
+
+  if(preview){
+    preview.innerHTML = `
+      <div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000">
+        <video style="width:100%;height:100%" controls playsinline src="${objectUrl}"></video>
+      </div>
+      <div style="font-size:.75rem;color:var(--success);margin-top:6px">✓ Video ready: ${file.name} (${sizeMB}MB)</div>`;
+  }
+  toast(`Lesson video attached! (${sizeMB}MB)`,'success');
+}
+
+async function handleCourseCoverUpload(file){
+  if(!file) return;
+  if(!file.type.startsWith('image/')){
+    toast('Please choose an image file (PNG, JPG, WebP)','error');
+    return;
+  }
+  if(file.size > 20 * 1024 * 1024){
+    toast('Cover image must be under 20MB','error');
+    return;
+  }
+  const preview = document.getElementById('cb-cover-preview');
+  if(preview){
+    preview.innerHTML = `<div style="padding:20px;text-align:center;color:var(--pri);font-size:.85rem">⏳ Processing cover image...</div>`;
   }
   const reader = new FileReader();
   reader.onload = async e => {
     const dataUrl = e.target.result;
-    try{
-      const upload = await uploadCourseVideoToServer(dataUrl, `lesson_video_${Date.now()}`);
-      const videoUrl = upload?.secureUrl || dataUrl;
-      if(window._CB && window._CB.modules[moduleIndex] && window._CB.modules[moduleIndex].lessons[lessonIndex]){
-        window._CB.modules[moduleIndex].lessons[lessonIndex].content = videoUrl;
-      }
-      renderCourseBuilder();
-      if(preview){
-        preview.innerHTML=`<div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden">${renderVideoMediaHtml(videoUrl)}</div>
-          <div style="font-size:.75rem;color:var(--success);margin-top:6px">Video ready: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)</div>`;
-      }
-      if(videoUrl.startsWith('data:')) toast('Lesson video saved locally. Publish still works.','warn');
-      else toast('Lesson video uploaded successfully','success');
-    }catch(_){
-      if(preview){
-        preview.innerHTML=`<div style="font-size:.8rem;color:var(--danger)">Upload failed. Try again.</div>`;
-      }
-      toast('Failed to upload lesson video file','error');
-    }
-  };
-  reader.onerror = ()=>{
+    let coverUrl = dataUrl;
+    try {
+      const upload = await uploadProfileImageToServer(dataUrl, `course_cover_${Date.now()}`);
+      if(upload?.secureUrl) coverUrl = upload.secureUrl;
+    } catch(_) {}
+
+    if(window._CB) window._CB.imageUrl = coverUrl;
+    const imgInput = document.getElementById('cb-img');
+    if(imgInput) imgInput.value = coverUrl.startsWith('http') ? coverUrl : '';
     if(preview){
-      preview.innerHTML=`<div style="font-size:.8rem;color:var(--danger)">Could not read the selected file.</div>`;
+      preview.innerHTML = `<img src="${coverUrl}" style="width:100%;max-height:220px;object-fit:cover;display:block" alt="Course Cover Preview"/>`;
     }
-    toast('Failed to read lesson video file','error');
+    toast('Cover page uploaded successfully!','success');
   };
   reader.readAsDataURL(file);
+}
+
+function updateCoverPreview(url){
+  const preview = document.getElementById('cb-cover-preview');
+  if(!preview) return;
+  if(!url){
+    preview.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:.82rem">No cover image uploaded yet. Click "Upload Cover Image" or paste a URL above.</div>';
+    return;
+  }
+  preview.innerHTML = `<img src="${url}" style="width:100%;max-height:220px;object-fit:cover;display:block" onerror="this.src='https://picsum.photos/seed/kf/600/400'" alt="Course cover"/>`;
 }
 
 async function handleProfileImageUpload(file,targetId,hiddenInputId){
@@ -2046,7 +2189,7 @@ function showPublicPage(page){
 }
 function showDashboard(section='overview'){
   if(!currentUser){showPublicPage('login-page');return}
-  if(currentUser.role==='admin'){showAdmin('overview');return}
+  if(currentUser.role==='admin'){showAdmin(section==='chat'?'chat':'overview');return}
   currentPage='dashboard'; currentSection=section; syncHash(); renderPage();
   if(currentUser.authToken){
     syncCurrentUserFromServer({rerender:true}).catch(()=>{});
@@ -2129,7 +2272,7 @@ function renderPage(){
   else if(currentPage==='admin') root.innerHTML=renderAdminLayout();
   else root.innerHTML=renderHomePage();
   addEventListeners();
-  if(currentPage==='dashboard' && currentSection==='chat') scrollChatToBottom();
+  if((currentPage==='dashboard' || currentPage==='admin') && currentSection==='chat') scrollChatToBottom();
   // observer for animations
   setTimeout(()=>{
     document.querySelectorAll('.fade-up').forEach(el=>{
@@ -2140,7 +2283,7 @@ function renderPage(){
 }
 
 function updateGlobalUiState(){
-  const inChatSection = currentPage==='dashboard' && currentSection==='chat';
+  const inChatSection = (currentPage==='dashboard' || currentPage==='admin') && currentSection==='chat';
   document.body.classList.toggle('chat-section-open', inChatSection);
   if(inChatSection && AI_BOT.open){
     AI_BOT.open = false;
@@ -2174,6 +2317,7 @@ function updateNav(){
         <div class="dropdown-menu" id="user-dd">
           ${currentUser.role==='admin' ? `
             <div class="dropdown-item" onclick="showAdmin('overview')">Admin Panel</div>
+            <div class="dropdown-item" onclick="showAdmin('chat')">💬 Community Chat</div>
             <div class="dropdown-item" onclick="showAdmin('users')">Manage Users</div>
             <div class="dropdown-item" onclick="showAdmin('courses')">Manage Courses</div>
             <div class="dropdown-item" onclick="showAdmin('quizzes')">Manage Quizzes</div>
@@ -2211,6 +2355,7 @@ function updateMobileMenu(){
   if(currentUser){
     if(currentUser.role==='admin'){
       links.push({label:'Admin Panel',href:'#admin/overview',fn:"showAdmin('overview')"});
+      links.push({label:'Admin Chat',href:'#admin/chat',fn:"showAdmin('chat')"});
     } else {
       links.push({label:'Dashboard',href:'#dashboard/overview',fn:"showDashboard()"});
     }
@@ -3589,7 +3734,7 @@ function renderCoursesPublicPage(){
   return `
   <section style="padding:60px 0 0;background:var(--bg2)"><div class="container" style="text-align:center;padding-bottom:48px">
     <h1 style="font-family:var(--font-h);font-size:2.2rem;font-weight:800;margin-bottom:10px">Our Courses</h1>
-    <p style="color:var(--muted)">${COURSES.length} expert-led courses across ${cats.length} categories</p>
+    <p style="color:var(--muted)">${allCourses.length} expert-led courses across ${cats.length} categories</p>
     <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap">
       <button class="btn btn-outline btn-sm" onclick="syncPublicCourses(true)">🔄 Refresh Courses</button>
       <span style="color:var(--muted);font-size:.95rem">${syncMessage}</span>
@@ -3747,18 +3892,30 @@ function openLesson(courseId,lessonId,type,contentEnc,titleEnc){
     <div style="margin-top:14px"><button id="lesson-complete-btn" class="btn btn-success btn-sm" onclick="completeTrackedLesson({courseId:'${courseId}',lessonId:'${lessonId}',timestampSeconds:0});closeModal()">✓ Mark as Complete</button></div>`,`<button class="btn btn-outline" onclick="closeModal()">Close</button>`);
     startLessonProgressTracking({courseId,lessonId,type:'text'});
   } else {
-    // Video: detect data URL vs YouTube vs external URL
-    const isDataUrl=normalizedContent.startsWith('data:video');
-    const isYoutube=isYouTubeLikeUrl(normalizedContent);
+    // Video: detect local-video vs data URL vs YouTube vs external URL
+    const isLocalVideo = normalizedContent.startsWith('local-video:');
+    const isDataUrl = normalizedContent.startsWith('data:video');
+    const isYoutube = isYouTubeLikeUrl(normalizedContent);
     const ytVideoId = isYoutube ? normalizedContent.split('/embed/')[1]?.split(/[?&]/)[0] : '';
     const iframeSrc = isYoutube
       ? `${normalizedContent}${normalizedContent.includes('?')?'&':'?'}rel=0&enablejsapi=1`
       : normalizedContent;
-    const videoHtml=isDataUrl
-      ? `<video id="lesson-video-player" style="width:100%;border-radius:10px;background:#000;max-height:400px" controls src="${normalizedContent}"></video>`
-      : isYoutube
-        ? `<div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden"><iframe id="lesson-youtube-player" src="${iframeSrc}" style="width:100%;height:100%;border:none" allowfullscreen></iframe></div>`
-        : `<video id="lesson-video-player" style="width:100%;border-radius:10px;background:#000;max-height:400px" controls src="${normalizedContent}"></video>`;
+    let videoHtml = '';
+    if(isLocalVideo){
+      const tempVidId = 'lesson-vid-' + Math.random().toString(36).slice(2);
+      setTimeout(async () => {
+        const blobUrl = await VideoStorage.getBlobUrl(normalizedContent);
+        const el = document.getElementById(tempVidId);
+        if(el && blobUrl) el.src = blobUrl;
+      }, 15);
+      videoHtml = `<video id="${tempVidId}" style="width:100%;border-radius:10px;background:#000;max-height:400px" controls playsinline></video>`;
+    } else if(isDataUrl){
+      videoHtml = `<video id="lesson-video-player" style="width:100%;border-radius:10px;background:#000;max-height:400px" controls playsinline src="${normalizedContent}"></video>`;
+    } else if(isYoutube){
+      videoHtml = `<div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden"><iframe id="lesson-youtube-player" src="${iframeSrc}" style="width:100%;height:100%;border:none" allowfullscreen></iframe></div>`;
+    } else {
+      videoHtml = `<video id="lesson-video-player" style="width:100%;border-radius:10px;background:#000;max-height:400px" controls playsinline src="${normalizedContent}"></video>`;
+    }
     openModal(title,`${videoHtml}
     <div style="margin-top:14px"><button id="lesson-complete-btn" class="btn btn-success btn-sm" onclick="completeTrackedLesson({courseId:'${courseId}',lessonId:'${lessonId}',timestampSeconds:0});closeModal()">✓ Mark as Complete</button></div>`,`<button class="btn btn-outline" onclick="closeModal()">Close</button>`);
     startLessonProgressTracking({
@@ -5724,9 +5881,14 @@ async function changePassword(){
 // ================================================================
 // ADMIN LAYOUT
 // ================================================================
+function renderAdminChat(){
+  return renderChat();
+}
+
 function renderAdminLayout(){
   const sections={
     overview:renderAdminOverview,
+    chat:renderAdminChat,
     users:renderAdminUsers,
     categories:renderAdminCategories,
     guests:renderAdminGuests,
@@ -5746,6 +5908,7 @@ function renderAdminLayout(){
   const content=sections[currentSection]?sections[currentSection]():renderAdminOverview();
   const nav=[
     {icon:'🏠',label:'Overview',section:'overview'},
+    {icon:'💬',label:'Community Chat',section:'chat'},
     {icon:'👥',label:'Users',section:'users'},
     {icon:'🗂',label:'Categories',section:'categories'},
     {icon:'🧾',label:'Guests',section:'guests'},
@@ -5791,7 +5954,7 @@ function renderAdminOverview(){
   <p style="color:var(--muted);margin-bottom:24px">Platform overview and management.</p>
   <div class="admin-stat-cards">
     <div class="admin-stat"><div class="admin-stat-num">${users.length}</div><div class="admin-stat-lbl">Total Users</div></div>
-    <div class="admin-stat"><div class="admin-stat-num">${COURSES.length}</div><div class="admin-stat-lbl">Total Courses</div></div>
+    <div class="admin-stat"><div class="admin-stat-num">${getAllCourses().length}</div><div class="admin-stat-lbl">Total Courses</div></div>
     <div class="admin-stat"><div class="admin-stat-num" style="color:var(--pri)">${categorizedPeople}</div><div class="admin-stat-lbl">People With Categories</div></div>
     <div class="admin-stat"><div class="admin-stat-num" style="color:var(--warn)">${pendingPay}</div><div class="admin-stat-lbl">Pending Payments</div></div>
     <div class="admin-stat"><div class="admin-stat-num" style="color:var(--success)">${totalRev.toLocaleString()}</div><div class="admin-stat-lbl">Revenue (UGX)</div></div>
@@ -5799,7 +5962,7 @@ function renderAdminOverview(){
     <div class="admin-stat"><div class="admin-stat-num">${payments.length}</div><div class="admin-stat-lbl">Total Payments</div></div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:24px">
-    ${[['users','👥 Users'],['categories','🗂 Categories'],['guests','🧾 Guests'],['reviews','💬 Reviews'],['payments','💳 Payments'],['appointments','📅 Appointments'],['blog','📝 Blog'],['jobs','💼 Jobs'],['notifications','🔔 Notify']].map(([s,l])=>`<button class="btn btn-outline btn-sm" onclick="showAdmin('${s}')">${l}</button>`).join('')}
+    ${[['chat','💬 Community Chat'],['courses','📚 Courses'],['users','👥 Users'],['categories','🗂 Categories'],['guests','🧾 Guests'],['reviews','💬 Reviews'],['payments','💳 Payments'],['appointments','📅 Appointments'],['blog','📝 Blog'],['jobs','💼 Jobs'],['notifications','🔔 Notify']].map(([s,l])=>`<button class="btn btn-outline btn-sm" onclick="showAdmin('${s}')">${l}</button>`).join('')}
   </div>
   ${currentSection === 'bayyinah' ? renderAdminBayyinahTools() : ''}
   <h2 style="font-family:var(--font-h);font-size:1.1rem;font-weight:700;margin-bottom:12px">Recent Payments</h2>
@@ -6255,14 +6418,22 @@ function renderAdminCourses(){
     </h2>
     <div class="course-grid">
     ${COURSES.map(c=>{
-      const lessonCount=(c.modules||[]).reduce((s,m)=>s+(m.lessons||[]).length,0);
+      const isCustomized = custom.some(cc => cc.id === c.id);
+      const displayCourse = isCustomized ? custom.find(cc => cc.id === c.id) : c;
+      const lessonCount=(displayCourse.modules||[]).reduce((s,m)=>s+(m.lessons||[]).length,0);
       return `<div class="course-card">
-        <img class="course-img" src="${c.imageUrl}" onerror="this.src='https://picsum.photos/seed/${c.id}/600/400'"/>
+        <img class="course-img" src="${displayCourse.imageUrl}" onerror="this.src='https://picsum.photos/seed/${displayCourse.id}/600/400'"/>
         <div class="course-body">
-          <span class="badge badge-primary" style="margin-bottom:8px;font-size:.68rem">${c.category}</span>
-          <div class="course-title">${c.title}</div>
-          <div style="color:var(--muted);font-size:.76rem;margin-bottom:10px">${(c.modules||[]).length} modules · ${lessonCount} lessons</div>
-          <button class="btn btn-outline btn-sm" onclick="viewCourse('${c.id}')">Preview</button>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span class="badge badge-primary" style="font-size:.68rem">${displayCourse.category}</span>
+            ${isCustomized ? '<span class="badge badge-success" style="font-size:.62rem">Customized</span>' : ''}
+          </div>
+          <div class="course-title">${displayCourse.title}</div>
+          <div style="color:var(--muted);font-size:.76rem;margin-bottom:10px">${(displayCourse.modules||[]).length} modules · ${lessonCount} lessons</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" style="flex:1" onclick="openCourseBuilder('${c.id}')">✏️ Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="viewCourse('${c.id}')">Preview</button>
+          </div>
         </div>
       </div>`;
     }).join('')}
@@ -6324,7 +6495,10 @@ async function checkCourseVideoUploadHealth(){
 // ================================================================
 function openCourseBuilder(editId){
   const custom = DB.get('customCourses')||[];
-  const editing = editId ? custom.find(c=>c.id===editId) : null;
+  let editing = editId ? custom.find(c=>c.id===editId) : null;
+  if(!editing && editId){
+    editing = COURSES.find(c=>c.id===editId) || null;
+  }
 
   // Build builder state
   window._CB = {
@@ -6358,30 +6532,50 @@ function renderCourseBuilder(){
           <label>Course Title *</label>
           <input class="form-control" id="cb-title" value="${cb.title.replace(/"/g,'&quot;')}" placeholder="e.g. Advanced Python Programming"/>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Category *</label>
-            <input class="form-control" id="cb-cat" value="${cb.category}" placeholder="e.g. ICT" list="cat-list"/>
-            <datalist id="cat-list"><option value="The Human Mastery Series"/><option value="ICT (Tech & Design)"/><option value="Node.js Development"/><option value="Python Programming"/><option value="Business"/><option value="Design"/></datalist>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Thumbnail URL</label>
-            <input class="form-control" id="cb-img" value="${cb.imageUrl}" placeholder="https://... (auto if blank)"/>
+        <div class="form-group" style="margin-bottom:10px">
+          <label>Category *</label>
+          <input class="form-control" id="cb-cat" value="${cb.category}" placeholder="e.g. ICT (Tech & Design)" list="cat-list"/>
+          <datalist id="cat-list"><option value="The Human Mastery Series"/><option value="ICT (Tech & Design)"/><option value="Node.js Development"/><option value="Python Programming"/><option value="Business"/><option value="Design"/></datalist>
+        </div>
+
+        <!-- COVER PAGE UPLOAD -->
+        <div class="form-group" style="margin-bottom:12px">
+          <label style="display:flex;justify-content:space-between;align-items:center;font-weight:600">
+            <span>Course Cover Image (Poster) *</span>
+            <span style="font-size:.75rem;color:var(--muted)">PNG, JPG, WebP</span>
+          </label>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <label class="btn btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 14px">
+                📷 Upload Cover Image
+                <input type="file" accept="image/*" style="display:none" onchange="handleCourseCoverUpload(this.files[0])"/>
+              </label>
+              <input class="form-control" id="cb-img" value="${cb.imageUrl||''}" placeholder="Or paste image URL (e.g. https://...)" style="flex:1;min-width:200px" oninput="if(window._CB)window._CB.imageUrl=this.value;updateCoverPreview(this.value)"/>
+            </div>
+            <div id="cb-cover-preview" style="border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--bg2)">
+              ${cb.imageUrl ? `<img src="${cb.imageUrl}" style="width:100%;max-height:220px;object-fit:cover;display:block" onerror="this.style.display='none'" alt="Course cover"/>` : '<div style="padding:24px;text-align:center;color:var(--muted);font-size:.82rem">No cover image uploaded yet. Click "Upload Cover Image" or paste a URL above.</div>'}
+            </div>
           </div>
         </div>
+
         <div class="form-group" style="margin-top:10px;margin-bottom:10px">
           <label>Description</label>
           <textarea class="form-control" id="cb-desc" rows="2" placeholder="Brief course overview...">${cb.description}</textarea>
         </div>
+
+        <!-- INTRO VIDEO (100MB - 1GB SUPPORTED) -->
         <div class="form-group" style="margin-bottom:0">
-          <label>Intro Video</label>
+          <label style="display:flex;justify-content:space-between;align-items:center;font-weight:600">
+            <span>Intro Video (100MB – 1GB supported) *</span>
+            <span style="font-size:.75rem;color:var(--muted)">MP4, WebM, MOV, or URL</span>
+          </label>
           <div style="display:flex;flex-direction:column;gap:8px">
             <div class="video-upload-zone" id="cb-video-zone">
               <input type="file" accept="video/*" onchange="handleVideoUpload(this.files[0],'cb-video-preview')"/>
               <div style="pointer-events:none">
                 <div style="font-size:2rem;margin-bottom:8px">🎬</div>
                 <div style="font-weight:600;margin-bottom:4px">Drop video here or click to upload</div>
-                <div style="font-size:.78rem;color:var(--muted)">MP4, WebM, MOV — max 60MB</div>
+                <div style="font-size:.78rem;color:var(--muted)">MP4, WebM, MOV — 100MB up to 1GB supported</div>
               </div>
             </div>
             <div id="cb-video-preview">
@@ -6392,7 +6586,7 @@ function renderCourseBuilder(){
               <span style="font-size:.75rem;color:var(--muted)">OR paste URL</span>
               <div style="flex:1;height:1px;background:var(--border)"></div>
             </div>
-            <input class="form-control" id="cb-video" value="${cb.videoUrl&&!cb.videoUrl.startsWith('data:')?cb.videoUrl:''}" placeholder="https://www.youtube.com/watch?v=... or https://www.youtube.com/embed/..."/>
+            <input class="form-control" id="cb-video" value="${cb.videoUrl&&!cb.videoUrl.startsWith('data:')&&!cb.videoUrl.startsWith('local-video:')?cb.videoUrl:''}" placeholder="https://www.youtube.com/watch?v=... or direct video link" oninput="if(window._CB)window._CB.videoUrl=this.value"/>
           </div>
         </div>
       </div>
@@ -6427,7 +6621,6 @@ function renderCourseBuilder(){
     </button>
   `;
   modalEl.classList.add('open');
-  // Expand modal for builder
   const box = document.getElementById('modal-box');
   if(box){ box.style.maxWidth='720px'; box.style.maxHeight='92vh'; }
 }
@@ -6461,11 +6654,11 @@ function cbRenderLessonHTML(l,mi,li){
         <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
           <input style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--muted);font-size:.78rem;width:100%;outline:none" value="${(l.content||'').replace(/"/g,'&quot;')}" placeholder="YouTube embed URL or direct video URL" oninput="cbUpdateLesson(${mi},${li},'content',this.value)"/>
           <label class="btn btn-outline btn-sm" style="padding:7px 10px;cursor:pointer;white-space:nowrap">
-            Upload local video
+            📹 Upload video (up to 1GB)
             <input type="file" accept="video/*" style="display:none" onchange="handleLessonVideoUpload(this.files[0],${mi},${li},'cb-lesson-video-preview-${mi}-${li}')"/>
           </label>
         </div>
-        <div style="font-size:.75rem;color:var(--muted);margin-top:4px">Choose a local MP4/WebM/MOV file to attach, then preview will appear below.</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:4px">Upload local MP4/WebM/MOV (up to 1GB supported) or paste URL.</div>
         <div id="cb-lesson-video-preview-${mi}-${li}" style="margin-top:8px">
           ${l.content?`<div style="aspect-ratio:16/9;border-radius:10px;overflow:hidden">${renderVideoMediaHtml(l.content)}</div>`:''}
         </div>
@@ -6598,6 +6791,7 @@ async function cbSave(){
     }
 
     DB.set('customCourses',custom);
+    window._lastPublicCourseSync = 0;
     const box=document.getElementById('modal-box');
     if(box){box.style.maxWidth='';box.style.maxHeight='';}
     closeModal();
@@ -6611,6 +6805,8 @@ function deleteCustomCourse(id){
   if(!confirm('Permanently delete this course? Students will lose access.')) return;
   const custom=(DB.get('customCourses')||[]).filter(c=>c.id!==id);
   DB.set('customCourses',custom);
+  window._lastPublicCourseSync = 0;
+  saveToDataAPI('courses', { id, _delete: true }).catch(()=>{});
   toast('Course deleted','success');
   showAdmin('courses');
 }
