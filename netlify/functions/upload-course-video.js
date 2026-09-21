@@ -1,5 +1,5 @@
 const { createClient } = require("@supabase/supabase-js");
-const { buildHeaders, respond, fail, preflight } = require("./_security.js");
+const { buildHeaders, respond, fail, preflight, firewallCheck, enforceRateLimit, getSession } = require("./_security.js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://stbpjtzeaxxzuzagzhmz.supabase.co";
 const SUPABASE_KEY =
@@ -12,8 +12,6 @@ if (!SUPABASE_KEY) {
   console.error("Missing Supabase service key environment variable");
 }
 const supabase = SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-
-const headers = buildHeaders(event);
 
 function parseVideoDataUri(dataUri) {
   const match = String(dataUri || "").match(/^data:(video\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
@@ -39,6 +37,7 @@ function fileExtensionFromMime(mimeType) {
 }
 
 async function ensureBucketExists(bucketName) {
+  if (!supabase) return;
   const { data: buckets, error: listError } = await supabase.storage.listBuckets();
   if (listError) throw new Error(listError.message || "Could not list storage buckets");
   const exists = (buckets || []).some((bucket) => bucket.name === bucketName);
@@ -55,10 +54,24 @@ exports.handler = async (event) => {
     return respond(event, 405, { error: "Method not allowed" });
   }
 
-  // Firewall check
-  const fw = S.firewallCheck(event);
+  // 1. Firewall check (WAF)
+  const fw = firewallCheck(event);
   if (fw.blocked) {
-    return S.respond(event, 403, { error: "Access denied." });
+    return respond(event, 403, { error: "Access denied." });
+  }
+
+  // 2. Rate limiting (5 uploads / minute)
+  const limited = enforceRateLimit(event, "video_upload", 5, 60000);
+  if (limited) return limited;
+
+  // 3. Authorization check (only authenticated instructors or admin can upload course videos)
+  const session = await getSession(event);
+  if (!session) {
+    return respond(event, 401, { error: "Authentication required to upload videos." });
+  }
+  const role = String(session.role || "").toLowerCase();
+  if (role !== "admin" && role !== "instructor" && role !== "lecturer") {
+    return respond(event, 403, { error: "Only instructors and administrators can upload course videos." });
   }
 
   try {
@@ -69,23 +82,20 @@ exports.handler = async (event) => {
     const body = JSON.parse(event.body || "{}");
     if (body.action === "health") {
       await ensureBucketExists(COURSE_VIDEO_BUCKET);
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          ok: true,
-          provider: "supabase-storage",
-          bucket: COURSE_VIDEO_BUCKET
-        })
-      };
+      return respond(event, 200, {
+        ok: true,
+        provider: "supabase-storage",
+        bucket: COURSE_VIDEO_BUCKET
+      });
     }
+
     const file = String(body.file || "");
-    const folder = String(body.folder || "uploads");
+    const folder = String(body.folder || "uploads").replace(/[^a-zA-Z0-9_-]/g, "");
     const publicId = String(body.publicId || `course_video_${Date.now()}`);
 
     const parsed = parseVideoDataUri(file);
     if (!parsed) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: "A valid video data URI is required" }) };
+      return respond(event, 400, { error: "A valid video data URI is required." });
     }
 
     const ext = fileExtensionFromMime(parsed.mimeType);
@@ -125,6 +135,7 @@ exports.handler = async (event) => {
       bucket: COURSE_VIDEO_BUCKET
     });
   } catch (error) {
-    return respond(event, 500, { error: error.message });
+    console.error("Video upload error:", error.message);
+    return respond(event, 500, { error: "Failed to upload video. Please try again." });
   }
 };

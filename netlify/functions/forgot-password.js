@@ -1,12 +1,12 @@
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { securityHeaders, jsonResponse, readJson, sanitizeString, normalizeEmail, isValidEmail, firewallCheck } = require("./_security.js");
+const { securityHeaders, jsonResponse, readJson, sanitizeString, normalizeEmail, isValidEmail, firewallCheck, enforceRateLimit } = require("./_security.js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://stbpjtzeaxxzuzagzhmz.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "no-reply@kfahad.academy";
-const APP_URL = process.env.URL || "http://localhost:8888";
+const APP_URL = process.env.APP_URL || process.env.URL || "https://kfahad.com";
 
 const supabase = SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } }) : null;
 
@@ -18,17 +18,21 @@ exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: securityHeaders(event) };
   if (event.httpMethod !== "POST") return jsonResponse(405, { error: "Method not allowed" }, {}, event);
 
-  // Firewall check
+  // 1. Firewall check (WAF)
   const fw = firewallCheck(event);
   if (fw.blocked) {
     return jsonResponse(403, { error: "Access denied." }, {}, event);
   }
 
+  // 2. Rate limiting (5 requests / 15 minutes)
+  const limited = enforceRateLimit(event, "forgot_password", 5, 15 * 60 * 1000);
+  if (limited) return limited;
+
   const { data: body, error: parseError } = readJson(event);
-  if (parseError) return jsonResponse(400, { error: parseError });
+  if (parseError) return jsonResponse(400, { error: parseError }, {}, event);
 
   const email = normalizeEmail(body.email);
-  if (!isValidEmail(email)) return jsonResponse(400, { error: "Please provide a valid email address." });
+  if (!isValidEmail(email)) return jsonResponse(400, { error: "Please provide a valid email address." }, {}, event);
 
   try {
     let user = null;
@@ -37,8 +41,9 @@ exports.handler = async (event) => {
       user = data || null;
     }
 
+    // Generic response regardless of whether account exists (prevents email enumeration attacks)
     if (!user) {
-      return jsonResponse(200, { message: "If an account exists, a reset link has been sent." });
+      return jsonResponse(200, { message: "If an account exists, a reset link has been sent to your email." }, {}, event);
     }
 
     const token = generateResetToken();
@@ -73,10 +78,9 @@ exports.handler = async (event) => {
       }
     }
 
-    console.log(`[FORGOT PASSWORD] Reset link for ${user.email}: ${resetLink}`);
-    return jsonResponse(200, { message: "If an account exists, a reset link has been sent." });
+    return jsonResponse(200, { message: "If an account exists, a reset link has been sent to your email." }, {}, event);
   } catch (err) {
     console.error("Forgot password error:", err.message);
-    return jsonResponse(500, { error: "Something went wrong. Please try again." });
+    return jsonResponse(500, { error: "Something went wrong. Please try again." }, {}, event);
   }
 };

@@ -108,21 +108,26 @@ function originAllowed(request, env) {
 }
 
 async function rateLimited(request, env, name, limit, windowMs) {
-  if (!env.RATE_LIMITER) throw new Error("RATE_LIMITER Durable Object binding is not configured.");
-  const ip = clientIp(request);
-  const id = env.RATE_LIMITER.idFromName(`${name}:${ip}`);
-  const result = await env.RATE_LIMITER.get(id).fetch("https://rate-limit.internal/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit, windowMs }),
-  });
-  if (!result.ok) throw new Error("Rate limiter request failed.");
-  const { limited, retryAfter } = await result.json();
-  return limited
-    ? json(request, env, 429, { error: "Too many requests. Please slow down and try again shortly." }, {
-      "Retry-After": String(retryAfter),
-    })
-    : null;
+  if (!env.RATE_LIMITER) return null;
+  try {
+    const ip = clientIp(request);
+    const id = env.RATE_LIMITER.idFromName(`${name}:${ip}`);
+    const result = await env.RATE_LIMITER.get(id).fetch("https://rate-limit.internal/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit, windowMs }),
+    });
+    if (!result.ok) return null;
+    const { limited, retryAfter } = await result.json();
+    return limited
+      ? json(request, env, 429, { error: "Too many requests. Please slow down and try again shortly." }, {
+        "Retry-After": String(retryAfter),
+      })
+      : null;
+  } catch (err) {
+    console.warn("Worker rate limit check error:", err.message);
+    return null;
+  }
 }
 
 function supabaseClient(env) {

@@ -24,6 +24,8 @@ function getStoreSafe() {
   }
 }
 
+const memoryStore = new Map();
+
 function createRateLimiter(options = {}) {
   const windowMs = options.windowMs || 60 * 1000;
   const max = options.max || 10;
@@ -31,12 +33,26 @@ function createRateLimiter(options = {}) {
   const skipSuccessfulRequests = Boolean(options.skipSuccessfulRequests);
 
   async function check(event = {}, context) {
-    const store = getStoreSafe();
-    if (!store) return { limited: false, remaining: max, count: 0, key: null };
-
     const ip = getClientIp(event);
     const key = `${keyPrefix}:${ip}`;
     const now = Date.now();
+    const store = getStoreSafe();
+
+    if (!store) {
+      // Robust in-memory rate limiting fallback
+      let rec = memoryStore.get(key);
+      if (!rec || now - rec.windowStart >= windowMs) {
+        rec = { count: 1, windowStart: now };
+        memoryStore.set(key, rec);
+        return { limited: false, remaining: max - 1, count: 1, retryAfter: Math.ceil(windowMs / 1000), key };
+      }
+      rec.count += 1;
+      const retryAfter = Math.max(1, Math.ceil((rec.windowStart + windowMs - now) / 1000));
+      if (rec.count > max) {
+        return { limited: true, count: rec.count, remaining: 0, retryAfter, key };
+      }
+      return { limited: false, count: rec.count, remaining: Math.max(0, max - rec.count), retryAfter, key };
+    }
 
     let record = null;
     try {

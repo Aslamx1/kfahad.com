@@ -518,13 +518,23 @@ function firewallCheck(event) {
   return { blocked: false };
 }
 
+function securityHeaders(event) {
+  return buildHeaders(event);
+}
+
+function jsonResponse(statusCode, payload, extraHeaders = {}, event) {
+  return respond(event, statusCode, payload, extraHeaders);
+}
+
 // Export firewall functions
 module.exports = {
   getSupabase,
   supabaseConfigured,
   SUPABASE_URL,
   buildHeaders,
+  securityHeaders,
   respond,
+  jsonResponse,
   preflight,
   fail,
   readJson,
