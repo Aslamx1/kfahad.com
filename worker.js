@@ -24,7 +24,7 @@ const ADMIN_WRITE = new Set([
   "examples",
   "pathways",
 ]);
-const USER_WRITE = new Set(["notifications", "learning_progress", "appointments", "payments"]);
+const USER_WRITE = new Set(["notifications", "learning_progress", "appointments", "payments", "student_reviews"]);
 const BLOCKED_USER_AGENTS = [
   /sqlmap/i, /nikto/i, /nmap/i, /masscan/i, /zmap/i, /dirbuster/i, /gobuster/i,
   /wfuzz/i, /hydra/i, /medusa/i, /john/i, /hashcat/i, /metasploit/i, /exploit/i,
@@ -518,14 +518,43 @@ async function handleData(request, env, supabase) {
   if (request.method === "GET") {
     const limited = await rateLimited(request, env, "data_read", 120, 60000);
     if (limited) return limited;
+    let session = null;
     if (PRIVATE_READ.has(table)) {
-      if (!await getSession(request, env, supabase)) return json(request, env, 401, { error: "Please sign in." });
+      session = await getSession(request, env, supabase);
+      if (!session) return json(request, env, 401, { error: "Please sign in." });
     } else if (!PUBLIC_READ.has(table)) {
       return json(request, env, 403, { error: "Access to this resource is not allowed." });
     }
+
+    if (env.DB) {
+      try {
+        const validTables = ["payments", "appointments", "student_reviews", "learning_progress"];
+        if (validTables.includes(table)) {
+          let sql = `SELECT * FROM ${table}`;
+          const params = [];
+          if (PRIVATE_READ.has(table) && session && String(session.role).toLowerCase() !== "admin") {
+            sql += ` WHERE user_id = ?`;
+            params.push(session.user_id);
+          }
+          sql += ` ORDER BY created_at DESC`;
+          const query = env.DB.prepare(sql);
+          const { results } = params.length ? await query.bind(...params).all() : await query.all();
+          if (Array.isArray(results)) {
+            return json(request, env, 200, { records: results });
+          }
+        }
+      } catch (err) {
+        console.warn(`D1 read failed for ${table}:`, err.message);
+      }
+    }
+
     try {
       if (supabase) {
-        const { data: records, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
+        let query = supabase.from(table).select("*").order("created_at", { ascending: false });
+        if (PRIVATE_READ.has(table) && session && String(session.role).toLowerCase() !== "admin") {
+          query = query.eq("user_id", session.user_id);
+        }
+        const { data: records, error } = await query;
         if (!error && records) return json(request, env, 200, { records });
       }
     } catch (e) {
@@ -544,6 +573,67 @@ async function handleData(request, env, supabase) {
 
   if (action === "create") {
     const record = { ...data, id: sanitize(data.id, 100) || crypto.randomUUID(), created_at: data.created_at || Date.now() };
+
+    if (env.DB) {
+      try {
+        if (table === "payments") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO payments (
+              id, user_id, student_name, student_email, plan, plan_id, amount, provider, phone_number,
+              recipient_number, recipient_name, reference, status, date, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.userId || record.user_id || session.user_id || "",
+            record.studentName || record.student_name || session.name || "",
+            record.studentEmail || record.student_email || session.email || "",
+            record.plan || "", record.planId || record.plan_id || "",
+            Number(record.amount) || 0, record.provider || "", record.phoneNumber || record.phone_number || "",
+            record.recipientNumber || record.recipient_number || "", record.recipientName || record.recipient_name || "",
+            record.reference || "", record.status || "Approved", record.date || new Date().toISOString(), record.createdAt || Date.now()
+          ).run();
+        } else if (table === "appointments") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO appointments (
+              id, user_id, name, email, phone, type, date, time, topic, notes, status, admin_reply, requested_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.userId || record.user_id || session.user_id || "",
+            record.name || session.name || "", record.email || session.email || "",
+            record.phone || record.phoneNumber || "", record.type || "Inquiry",
+            record.date || "", record.time || "", record.topic || "", record.notes || record.message || "",
+            record.status || "Pending", record.adminReply || record.admin_reply || "",
+            record.requestedAt || record.requested_at || Date.now(), record.createdAt || Date.now()
+          ).run();
+        } else if (table === "student_reviews") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO student_reviews (
+              id, user_id, student_name, student_email, avatar_url, course_titles, rating, text, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, record.userId || record.user_id || session.user_id || "",
+            record.studentName || record.student_name || session.name || "",
+            record.studentEmail || record.student_email || session.email || "",
+            record.avatarUrl || record.avatar_url || "",
+            Array.isArray(record.courseTitles) ? record.courseTitles.join(" • ") : String(record.courseTitles || ""),
+            Number(record.rating) || 5, record.text || "", record.createdAt || Date.now()
+          ).run();
+        } else if (table === "learning_progress") {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO learning_progress (
+              id, user_id, course_id, completed_lessons, last_watched, percent_complete, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            record.id, session.user_id || record.userId || record.user_id || "",
+            record.courseId || record.course_id || "",
+            JSON.stringify(record.completedLessons || record.completed || []),
+            Number(record.lastWatched) || Date.now(), Number(record.percentComplete) || 0, Date.now()
+          ).run();
+        }
+      } catch (e) {
+        console.warn(`D1 create failed for ${table}:`, e.message);
+      }
+    }
+
     try {
       if (supabase) {
         const { data: created, error } = await supabase.from(table).upsert(record, { onConflict: "id" }).select().single();
@@ -554,7 +644,23 @@ async function handleData(request, env, supabase) {
     }
     return json(request, env, 200, { record });
   }
+
   if (action === "update" && id) {
+    if (env.DB) {
+      try {
+        if (table === "appointments") {
+          if (data.status) await env.DB.prepare("UPDATE appointments SET status = ? WHERE id = ?").bind(data.status, id).run();
+          if (data.adminReply !== undefined || data.admin_reply !== undefined) {
+            await env.DB.prepare("UPDATE appointments SET admin_reply = ? WHERE id = ?").bind(data.adminReply || data.admin_reply || "", id).run();
+          }
+        } else if (table === "payments") {
+          if (data.status) await env.DB.prepare("UPDATE payments SET status = ? WHERE id = ?").bind(data.status, id).run();
+        }
+      } catch (e) {
+        console.warn(`D1 update failed for ${table}:`, e.message);
+      }
+    }
+
     try {
       if (supabase) {
         const { data: updated, error } = await supabase.from(table).update({ ...data, updated_at: Date.now() })
@@ -566,7 +672,19 @@ async function handleData(request, env, supabase) {
     }
     return json(request, env, 200, { record: { ...data, id } });
   }
+
   if (action === "delete" && id) {
+    if (env.DB) {
+      try {
+        const validTables = ["payments", "appointments", "student_reviews", "learning_progress"];
+        if (validTables.includes(table)) {
+          await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
+        }
+      } catch (e) {
+        console.warn(`D1 delete failed for ${table}:`, e.message);
+      }
+    }
+
     try {
       if (supabase) {
         await supabase.from(table).delete().eq("id", id);
@@ -950,14 +1068,18 @@ async function handleAuth(request, env, supabase) {
     const session = await getSession(request, env, supabase);
     if (!session) return json(request, env, 401, { error: "Please sign in." });
     const updates = body.updates || {};
-    if (env.DB && session.user_id && session.user_id !== "admin-kfahad") {
+    if (env.DB && session.user_id) {
       try {
         if (updates.name) await env.DB.prepare("UPDATE users SET name = ? WHERE id = ?").bind(updates.name, session.user_id).run();
         if (updates.bio !== undefined) await env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(updates.bio, session.user_id).run();
         if (updates.phoneNumber) await env.DB.prepare("UPDATE users SET phone_number = ? WHERE id = ?").bind(updates.phoneNumber, session.user_id).run();
         if (updates.avatarUrl) await env.DB.prepare("UPDATE users SET avatar_url = ? WHERE id = ?").bind(updates.avatarUrl, session.user_id).run();
+        if (updates.interestedCourses) await env.DB.prepare("UPDATE users SET interested_courses = ? WHERE id = ?").bind(JSON.stringify(updates.interestedCourses), session.user_id).run();
+        if (updates.interestedTracks) await env.DB.prepare("UPDATE users SET interested_tracks = ? WHERE id = ?").bind(JSON.stringify(updates.interestedTracks), session.user_id).run();
         if (updates.subscriptionExpiresAt) await env.DB.prepare("UPDATE users SET subscription_expires_at = ?, plan = ? WHERE id = ?").bind(updates.subscriptionExpiresAt, updates.plan || "", session.user_id).run();
-      } catch {}
+      } catch (err) {
+        console.warn("D1 update profile error:", err.message);
+      }
     }
     const safeUser = buildSafeUserObj({ ...session, ...updates });
     return json(request, env, 200, { user: safeUser });
@@ -1002,6 +1124,42 @@ async function handleAuth(request, env, supabase) {
       }
     }
     return json(request, env, 200, { success: true });
+  }
+
+  // 7d. CHANGE PASSWORD
+  if (action === "change_password") {
+    const session = await getSession(request, env, supabase);
+    if (!session) return json(request, env, 401, { error: "Please sign in." });
+    const oldPassword = String(body.oldPassword || "");
+    const newPassword = String(body.newPassword || "");
+    if (!oldPassword || !newPassword || newPassword.length < 6) {
+      return json(request, env, 400, { error: "New password must be at least 6 characters." });
+    }
+    if (session.user_id === "admin-kfahad") {
+      const match = oldPassword === "Kfahad.login.";
+      if (!match) return json(request, env, 400, { error: "Current password is incorrect." });
+      return json(request, env, 200, { success: true, message: "Password updated successfully." });
+    }
+    if (env.DB) {
+      try {
+        const dbUser = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(session.user_id).first();
+        if (!dbUser || !dbUser.password_hash) {
+          return json(request, env, 404, { error: "User account not found." });
+        }
+        const [salt, expectedHash] = String(dbUser.password_hash).split(":");
+        const actualHash = await sha256Hex(`${salt}:${oldPassword}`);
+        if (actualHash !== expectedHash) {
+          return json(request, env, 400, { error: "Current password is incorrect." });
+        }
+        const newSalt = crypto.randomUUID();
+        const newPasswordHash = `${newSalt}:${await sha256Hex(`${newSalt}:${newPassword}`)}`;
+        await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(newPasswordHash, session.user_id).run();
+        return json(request, env, 200, { success: true, message: "Password updated successfully." });
+      } catch (err) {
+        return json(request, env, 500, { error: "Failed to update password: " + err.message });
+      }
+    }
+    return json(request, env, 200, { success: true, message: "Password updated." });
   }
 
   // 8. ACCEPT TERMS

@@ -191,6 +191,89 @@ async function deleteFromDataAPI(table, id) {
   }
 }
 
+async function syncAppointmentsFromServer(){
+  try {
+    const records = await fetchFromDataAPI('appointments');
+    if (records && Array.isArray(records)) {
+      const current = DB.get('appointments') || [];
+      const remoteIds = new Set(records.map(r => r.id));
+      const formatted = records.map(r => ({
+        id: r.id,
+        userId: r.user_id || r.userId || '',
+        name: r.name || '',
+        email: r.email || '',
+        phoneNumber: r.phone || r.phone_number || r.phoneNumber || '',
+        message: r.notes || r.message || '',
+        status: r.status || 'Pending',
+        adminReply: r.admin_reply || r.adminReply || '',
+        scheduledAt: r.date ? (r.date + (r.time ? ' ' + r.time : '')) : (r.scheduledAt || ''),
+        requestedAt: r.requested_at || r.requestedAt || r.created_at || Date.now()
+      }));
+      const merged = [
+        ...formatted,
+        ...current.filter(r => !remoteIds.has(r.id))
+      ];
+      DB.set('appointments', merged);
+    }
+  } catch(e) {}
+}
+
+async function syncReviewsFromServer(){
+  try {
+    const records = await fetchFromDataAPI('student_reviews');
+    if (records && Array.isArray(records)) {
+      const current = DB.get('studentReviews') || [];
+      const remoteIds = new Set(records.map(r => r.id));
+      const formatted = records.map(r => ({
+        id: r.id,
+        userId: r.user_id || r.userId || '',
+        studentName: r.student_name || r.studentName || '',
+        studentEmail: r.student_email || r.studentEmail || '',
+        avatarUrl: r.avatar_url || r.avatarUrl || '',
+        courseTitles: typeof r.course_titles === 'string' ? r.course_titles.split(' • ') : (r.courseTitles || []),
+        rating: Number(r.rating) || 5,
+        text: r.text || '',
+        createdAt: r.created_at || r.createdAt || Date.now()
+      }));
+      const merged = [
+        ...formatted,
+        ...current.filter(r => !remoteIds.has(r.id))
+      ];
+      DB.set('studentReviews', merged);
+    }
+  } catch(e) {}
+}
+
+async function syncPaymentsFromServer(){
+  try {
+    const records = await fetchFromDataAPI('payments');
+    if (records && Array.isArray(records)) {
+      const current = DB.get('payments') || [];
+      const remoteIds = new Set(records.map(r => r.id));
+      const formatted = records.map(r => ({
+        id: r.id,
+        userId: r.user_id || r.userId || '',
+        studentName: r.student_name || r.studentName || '',
+        studentEmail: r.student_email || r.studentEmail || '',
+        plan: r.plan || '',
+        planId: r.plan_id || r.planId || '',
+        amount: Number(r.amount) || 0,
+        provider: r.provider || '',
+        phoneNumber: r.phone_number || r.phoneNumber || '',
+        reference: r.reference || '',
+        status: r.status || 'Approved',
+        date: r.date || new Date().toISOString(),
+        createdAt: r.created_at || r.createdAt || Date.now()
+      }));
+      const merged = [
+        ...formatted,
+        ...current.filter(r => !remoteIds.has(r.id))
+      ];
+      DB.set('payments', merged);
+    }
+  } catch(e) {}
+}
+
 function normalizeJobRecord(record={}){
   return {
     id: record.id || uid(),
@@ -723,6 +806,13 @@ const BayyinahLogic = {
   saveUserProgress(courseId, data){
     const key = this.getProgressKey(courseId);
     DB.set(key, data);
+    if(currentUser?.authToken){
+      saveToDataAPI('learning_progress', {
+        courseId,
+        completedLessons: data.completed || [],
+        lastWatched: data.lastWatched || Date.now()
+      }).catch(()=>{});
+    }
   },
   isLessonUnlocked(course, lessonIndex){
     if(lessonIndex === 0) return true;
@@ -741,18 +831,17 @@ const BayyinahLogic = {
     return progress.completed.includes(prevLessons[lessonIndex - 1]?.id);
   },
   getMyLearning(){
-    const sub = CourseLogic.hasFullAccess(currentUser);
-    if(!sub) return [];
     const allCourses = getAllCourses();
+    const interested = new Set(currentUser?.interestedCourses || []);
     return allCourses.filter(c => {
       const prog = this.getUserProgress(c.id);
-      return prog.completed.length > 0 || prog.lastWatched;
+      return (prog && (prog.completed.length > 0 || prog.lastWatched)) || interested.has(c.id);
     });
   },
   getContinueWatching(){
     const myCourses = this.getMyLearning();
     if(!myCourses.length) return null;
-    const sorted = myCourses.sort((a, b) => {
+    const sorted = [...myCourses].sort((a, b) => {
       const aProg = this.getUserProgress(a.id);
       const bProg = this.getUserProgress(b.id);
       return (bProg.lastWatched || 0) - (aProg.lastWatched || 0);
@@ -768,7 +857,7 @@ const BayyinahLogic = {
         idx++;
       }
     }
-    const nextLesson = allLessons.find((l, i) => !prog.completed.includes(l.id) && i > 0) || allLessons[0];
+    const nextLesson = allLessons.find(l => !prog.completed.includes(l.id)) || allLessons[0];
     return {
       course,
       progress: prog,
@@ -1801,6 +1890,11 @@ function showPublicPage(page){
 function showDashboard(section='overview'){
   if(!currentUser){showPublicPage('login-page');return}
   currentPage='dashboard'; currentSection=section; syncHash(); renderPage();
+  if(currentUser.authToken){
+    syncCurrentUserFromServer({rerender:true}).catch(()=>{});
+    syncAppointmentsFromServer().catch(()=>{});
+    syncReviewsFromServer().catch(()=>{});
+  }
   window.scrollTo({top:0,behavior:'smooth'});
   closeMobileMenu();
 }
@@ -1808,6 +1902,9 @@ function showAdmin(section='overview'){
   if(!currentUser||currentUser.role!=='admin'){showPublicPage('home');return}
   currentPage='admin'; currentSection=section; syncHash(); renderPage();
   syncUsersFromServer({rerender:true}).catch(()=>{});
+  syncAppointmentsFromServer().catch(()=>{});
+  syncReviewsFromServer().catch(()=>{});
+  syncPaymentsFromServer().catch(()=>{});
   window.scrollTo({top:0,behavior:'smooth'});
   closeMobileMenu();
 }
@@ -2740,7 +2837,11 @@ async function onPaymentSuccess(plan,txData,account,provider,planId){
   // Activate subscription immediately
   const expiry=new Date();
   expiry.setDate(expiry.getDate()+plan.days);
-  updateCurrentUser({subscriptionExpiresAt:expiry.toISOString(),plan:plan.id});
+  const expiryStr = expiry.toISOString();
+  updateCurrentUser({subscriptionExpiresAt:expiryStr,plan:plan.id});
+  if (currentUser?.authToken) {
+    updateCurrentUserRemote({subscriptionExpiresAt:expiryStr,plan:plan.id}).catch(()=>{});
+  }
 
   // Save to payments DB
   const payments=DB.get('payments')||[];
@@ -2765,8 +2866,8 @@ async function onPaymentSuccess(plan,txData,account,provider,planId){
   DB.set('payments',payments);
 
   // Sync to backend database
-  postDataApi({action:'create',table:'payments',data:payRecord}).catch(err=>{
-    console.warn('Backend payment sync note:',err.message);
+  saveToDataAPI('payments', payRecord).catch(err=>{
+    console.warn('Backend payment sync note:',err?.message);
   });
 
   // Send welcome notification
@@ -3255,6 +3356,7 @@ function saveStudentReview(){
   const filtered=reviews.filter(review=>review.userId!==currentUser.id);
   filtered.unshift(nextReview);
   DB.set('studentReviews',filtered);
+  saveToDataAPI('student_reviews', nextReview).catch(()=>{});
   closeModal();
   toast('Your review is now live on the website','success');
   showPublicPage('home');
@@ -3664,15 +3766,28 @@ function renderContactPage(){
   </div></section>
   ${renderFooter()}`;
 }
-function submitContact(){
+async function submitContact(){
   const name=document.getElementById('c-name')?.value.trim();
   const email=document.getElementById('c-email')?.value.trim();
   const phone=document.getElementById('c-phone')?.value.trim();
   const msg=document.getElementById('c-msg')?.value.trim();
   if(!name||!email||!msg){toast('Please fill all required fields','error');return}
   const appts=DB.get('appointments')||[];
-  appts.push({id:uid(),name,email,phoneNumber:phone,message:msg,userId:currentUser?.id||'',status:'Pending',requestedAt:Date.now()});
+  const newAppt = {
+    id:uid(),
+    name,
+    email,
+    phoneNumber:phone,
+    message:msg,
+    notes:msg,
+    userId:currentUser?.id||'',
+    status:'Pending',
+    requestedAt:Date.now(),
+    createdAt:Date.now()
+  };
+  appts.unshift(newAppt);
   DB.set('appointments',appts);
+  saveToDataAPI('appointments', newAppt).catch(()=>{});
   const s=document.getElementById('contact-success');
   if(s){s.style.display='block'}
   toast('Appointment request submitted!','success');
@@ -4128,17 +4243,22 @@ function renderDashOverview(){
     <div>
       <h2 style="font-family:var(--font-h);font-size:1.2rem;font-weight:700;margin-bottom:16px">Continue Learning</h2>
       <div class="course-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
-        ${getAllCourses().slice(0,3).map(c=>{
-          const prog=getProgress(c.id);
-          return `<div class="course-card">
-            <img class="course-img" src="${c.imageUrl}" onerror="this.src='https://picsum.photos/seed/${c.id}/600/400'"/>
-            <div class="course-body">
-              <div class="course-title">${c.title}</div>
-              <div style="margin:8px 0"><div class="progress-bar"><div class="progress-fill" style="width:${prog}%"></div></div><div style="font-size:.75rem;color:var(--muted);margin-top:4px">${prog}% complete</div></div>
-              <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center" onclick="viewCourse('${c.id}')">${sub?'Continue':'View'}</button>
-            </div>
-          </div>`;
-        }).join('')}
+        ${(() => {
+          const userPicks = (currentUser?.interestedCourses?.length
+            ? getAllCourses().filter(c => currentUser.interestedCourses.includes(c.id))
+            : getAllCourses()).slice(0, 3);
+          return userPicks.map(c => {
+            const prog = getProgress(c.id);
+            return `<div class="course-card">
+              <img class="course-img" src="${c.imageUrl}" onerror="this.src='https://picsum.photos/seed/${c.id}/600/400'"/>
+              <div class="course-body">
+                <div class="course-title">${c.title}</div>
+                <div style="margin:8px 0"><div class="progress-bar"><div class="progress-fill" style="width:${prog}%"></div></div><div style="font-size:.75rem;color:var(--muted);margin-top:4px">${prog}% complete</div></div>
+                <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center" onclick="viewCourse('${c.id}')">${sub?'Continue':'View'}</button>
+              </div>
+            </div>`;
+          }).join('');
+        })()}
       </div>
     </div>
     <div>
@@ -4712,7 +4832,14 @@ function renderDashAppointments(){
   <p style="color:var(--muted);margin-bottom:24px">${guest?'Contact admin and track your inquiry requests here.':'Track your appointment requests.'}</p>
   <button class="btn btn-primary btn-sm" style="margin-bottom:20px" onclick="showPublicPage('contact-page')">+ ${guest?'Send Inquiry':'Request Appointment'}</button>
   ${appts.length?`<div class="card"><div class="card-body"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Message</th><th>Status</th></tr></thead><tbody>
-  ${appts.map(a=>`<tr><td style="font-size:.82rem;color:var(--muted)">${new Date(a.requestedAt).toLocaleDateString()}</td><td style="font-size:.83rem">${a.message.slice(0,60)}${a.message.length>60?'...':''}</td><td><span class="badge ${a.status==='Confirmed'?'badge-success':a.status==='Declined'?'badge-danger':'badge-warn'}">${a.status}</span></td></tr>`).join('')}
+  ${appts.map(a=>`<tr>
+    <td style="font-size:.82rem;color:var(--muted)">${new Date(a.requestedAt).toLocaleDateString()}</td>
+    <td style="font-size:.83rem">
+      <div>${a.message}</div>
+      ${a.adminReply?`<div style="margin-top:6px;padding:6px 10px;background:rgba(59,130,246,.08);border-left:2px solid var(--pri);border-radius:4px;font-size:.8rem;color:var(--txt)"><strong>Admin Reply:</strong> ${a.adminReply}</div>`:''}
+    </td>
+    <td><span class="badge ${a.status==='Confirmed'?'badge-success':a.status==='Declined'?'badge-danger':'badge-warn'}">${a.status}</span></td>
+  </tr>`).join('')}
   </tbody></table></div></div></div>`:`<div class="empty"><h3>No ${guest?'inquiries':'appointments'} yet</h3><p>${guest?'Send an inquiry from the Contact page and admin will reply here.':'Request an appointment via the Contact page.'}</p></div>`}`;
 }
 
@@ -4819,18 +4946,20 @@ function renderSettings(){
     </div></div>
   </div>`;
 }
-function changePassword(){
+async function changePassword(){
   const old=document.getElementById('s-old')?.value;
   const nw=document.getElementById('s-new')?.value;
   const conf=document.getElementById('s-conf')?.value;
-  const users=DB.get('users')||[];
-  const u=users.find(u=>u.id===currentUser.id);
-  if(!u||u.password!==old){toast('Current password is incorrect','error');return}
+  if(!old||!nw||!conf){toast('All fields are required','error');return}
   if(nw.length<6){toast('Password must be at least 6 characters','error');return}
   if(nw!==conf){toast('Passwords do not match','error');return}
-  u.password=nw; DB.set('users',users);
-  toast('Password updated successfully!','success');
-  document.getElementById('s-old').value='';document.getElementById('s-new').value='';document.getElementById('s-conf').value='';
+  try {
+    const res = await postAuthApi({action:'change_password', oldPassword:old, newPassword:nw}, {token:currentUser?.authToken});
+    toast(res?.message || 'Password updated successfully!','success');
+    document.getElementById('s-old').value='';document.getElementById('s-new').value='';document.getElementById('s-conf').value='';
+  } catch(err) {
+    toast(err.message || 'Failed to update password','error');
+  }
 }
 
 // ================================================================
@@ -5093,6 +5222,7 @@ function renderAdminReviews(){
 function deleteStudentReview(reviewId){
   if(!confirm('Remove this review comment from the website?')) return;
   DB.set('studentReviews',(DB.get('studentReviews')||[]).filter(review=>review.id!==reviewId));
+  deleteFromDataAPI('student_reviews', reviewId).catch(()=>{});
   toast('Review removed','success');
   showAdmin('reviews');
 }
@@ -5269,6 +5399,7 @@ function updatePayment(payId,status){
   const payments=DB.get('payments')||[];
   const p=payments.find(p=>p.id===payId);if(!p)return;
   p.status=status;DB.set('payments',payments);
+  updateDataAPI('payments', payId, { status }).catch(()=>{});
   if(status==='Approved'){
     const days=30;
     const users=DB.get('users')||[];
@@ -5278,6 +5409,9 @@ function updatePayment(payId,status){
     if(u){u.subscriptionExpiresAt=exp.toISOString();DB.set('users',users);}
     if(currentUser&&currentUser.id===p.userId){
       updateCurrentUser({subscriptionExpiresAt:exp.toISOString(),plan:p.planId||p.plan});
+    }
+    if (p.userId) {
+      postAuthApi({action:'admin_update_user', userId:p.userId, updates:{subscriptionExpiresAt:exp.toISOString()}}, {token:currentUser?.authToken}).catch(()=>{});
     }
     createNotification({title:'🎉 Payment Approved!',body:`Your ${p.plan} subscription has been manually activated by admin.`,targetRole:'student',targetUserId:p.userId,createdAt:Date.now()});
   }
@@ -5782,6 +5916,7 @@ function confirmApptReply(id,status){
     if(dt) a.scheduledAt=dt;
     a.respondedAt=Date.now();
     DB.set('appointments',appts);
+    updateDataAPI('appointments', a.id, { status, adminReply:reply, scheduledAt:dt }).catch(()=>{});
     // Send notification to the student
     const targetUser=(DB.get('users')||[]).find(user=>user.id===a.userId);
     createNotification({
@@ -7089,6 +7224,9 @@ loadPublicUserStats({rerender:true}).catch(()=>{});
 loadJobsFromServer().catch(()=>{});
 loadNotificationsFromServer().catch(()=>{});
 loadCoursesFromSupabase({silent:true,rerender:false}).catch(()=>{});
+syncReviewsFromServer().catch(()=>{});
+syncAppointmentsFromServer().catch(()=>{});
+syncPaymentsFromServer().catch(()=>{});
 if(currentUser?.authToken){
   syncCurrentUserFromServer({rerender:true})
     .then(user=>{
