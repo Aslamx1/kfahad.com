@@ -698,14 +698,24 @@ function toTimestamp(value){
   const timestamp = typeof value==='number' ? value : new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
+function isStaffUser(user=currentUser){
+  if(!user) return false;
+  if(user.id === 'admin-kfahad') return true;
+  const role = String(user.role || user.accountType || '').trim().toLowerCase();
+  if(['admin', 'instructor', 'lecturer', 'teacher'].includes(role)) return true;
+  const email = String(user.email || '').trim().toLowerCase();
+  if(email === 'admin.kfahad@gmail.com' || email === 'admin@kfahad.com') return true;
+  return false;
+}
 const CourseLogic = {
   hasFullAccess(user=currentUser){
     if(!user) return false;
-    if(user.role==='admin'||user.role==='instructor') return true;
+    if(isStaffUser(user)) return true;
     return toTimestamp(user.subscriptionExpiresAt) > Date.now();
   },
   calculateSubscriptionDays(user=currentUser){
     if(!user) return 0;
+    if(isStaffUser(user)) return 9999;
     const diff = toTimestamp(user.subscriptionExpiresAt) - Date.now();
     return diff > 0 ? Math.ceil(diff / MS_PER_DAY) : 0;
   },
@@ -896,7 +906,6 @@ const BayyinahLogic = {
   },
   getLessonStatus(course, lessonIndex){
     if(!currentUser) return 'Locked';
-    if(!CourseLogic.hasFullAccess(currentUser)) return 'Locked';
     const flatLessons = [];
     for(const mod of (course.modules || [])){
       for(const lesson of (mod.lessons || [])){
@@ -907,6 +916,8 @@ const BayyinahLogic = {
     if(!lesson) return 'Locked';
     const prog = this.getUserProgress(course.id);
     if(prog.completed.includes(lesson.id)) return 'Completed';
+    if(isStaffUser(currentUser)) return 'Available';
+    if(!CourseLogic.hasFullAccess(currentUser)) return 'Locked';
     if(lessonIndex===0) return 'Available';
     const prev = flatLessons[lessonIndex-1];
     return prev && prog.completed.includes(prev.id) ? 'Available' : 'Locked';
@@ -3532,6 +3543,7 @@ function renderCourseDetailPage(){
   ${renderFooter()}`;
 }
 function showUpgradeModal(courseId){
+  if(isStaffUser(currentUser)) return;
   const course = courseId ? getAllCourses().find(item=>item.id===courseId) : null;
   const courseLabel = course ? `${course.title} (${course.id})` : 'this premium course';
   openModal('Full Access Required',`
@@ -4203,7 +4215,8 @@ function deleteTVItem(id){
 // ================================================================
 function renderDashOverview(){
   refreshCurrentUser();
-  const sub=isSubscribed();
+  const isStaff=isStaffUser(currentUser);
+  const sub=isStaff || isSubscribed();
   const daysLeft=CourseLogic.calculateSubscriptionDays(currentUser);
   const pending=(DB.get('payments')||[]).filter(p=>p.userId===currentUser.id&&p.status==='Pending');
   const attempts=DB.get('quizAttempts')||[];
@@ -4215,11 +4228,11 @@ function renderDashOverview(){
     <h1 style="font-family:var(--font-h);font-size:1.8rem;font-weight:800;margin-bottom:6px">Welcome back, ${currentUser.name.split(' ')[0]}! 👋</h1>
     <p style="color:var(--muted)">Let's continue your learning journey.</p>
   </div>
-  ${pending.length?`<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
+  ${!isStaff && pending.length?`<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
     <svg width="20" height="20" fill="none" stroke="var(--warn)" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
     <span style="font-size:.875rem"><strong>Payment Pending:</strong> Your payment is being reviewed. Full access will be granted once approved.</span>
   </div>`:''}
-  ${!sub&&!pending.length?`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+  ${!isStaff && !sub && !pending.length?`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
     <span style="font-size:.875rem">🔒 No active subscription. Subscribe to access all courses.</span>
     <button class="btn btn-primary btn-sm" onclick="showPublicPage('pricing-page')">Subscribe Now</button>
   </div>`:''}
@@ -4227,7 +4240,7 @@ function renderDashOverview(){
     <div class="admin-stat"><div class="admin-stat-num">${getAllCourses().length}</div><div class="admin-stat-lbl">Total Courses</div></div>
     <div class="admin-stat"><div class="admin-stat-num">${myAttempts.length}</div><div class="admin-stat-lbl">Quizzes Taken</div></div>
     <div class="admin-stat"><div class="admin-stat-num">${myAttempts.length?Math.round(myAttempts.reduce((s,a)=>s+a.score/a.totalQuestions*100,0)/myAttempts.length)+'%':'—'}</div><div class="admin-stat-lbl">Avg Quiz Score</div></div>
-    <div class="admin-stat"><div class="admin-stat-num" style="color:${sub?'var(--success)':'var(--danger)'}">${sub?'Active':'Inactive'}</div><div class="admin-stat-lbl">${sub?`${daysLeft} day${daysLeft===1?'':'s'} left`:'Subscription'}</div></div>
+    <div class="admin-stat"><div class="admin-stat-num" style="color:${isStaff?'var(--pri)':sub?'var(--success)':'var(--danger)'}">${isStaff?'Staff':sub?'Active':'Inactive'}</div><div class="admin-stat-lbl">${isStaff?'Unlimited Access':sub?`${daysLeft} day${daysLeft===1?'':'s'} left`:'Subscription'}</div></div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:28px">
     <div class="card"><div class="card-body">
@@ -4381,7 +4394,9 @@ function getNormalizedLiveSessions(){
 }
 
 function canAccessLiveSession(session){
-  if(!currentUser || !CourseLogic.hasFullAccess(currentUser)) return false;
+  if(!currentUser) return false;
+  if(isStaffUser(currentUser)) return true;
+  if(!CourseLogic.hasFullAccess(currentUser)) return false;
   if(!session.requiredCourseId || !session.requiredLessonId) return true;
   const prog = BayyinahLogic.getUserProgress(session.requiredCourseId);
   return prog.completed.includes(session.requiredLessonId);
@@ -4861,7 +4876,8 @@ function renderNotifications(){
 
 function renderProfile(){
   refreshCurrentUser();
-  const sub=isSubscribed();
+  const isStaff=isStaffUser(currentUser);
+  const sub=isStaff || isSubscribed();
   const daysLeft=CourseLogic.calculateSubscriptionDays(currentUser);
   const humanTrackProgress=CourseLogic.calculateTrackProgress(currentUser,'human-mastery');
   const digitalTrackProgress=CourseLogic.calculateTrackProgress(currentUser,'digital-mastery');
@@ -4875,10 +4891,15 @@ function renderProfile(){
       <span class="badge badge-${currentUser.role}">${currentUser.role}</span>
       <div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:8px">
         <div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Subscription</div>
-        <div style="font-weight:700;color:${sub?'var(--success)':'var(--danger)'}">${sub?'Active':'Inactive'}</div>
-        ${currentUser.subscriptionExpiresAt?`<div style="font-size:.75rem;color:var(--muted)">Expires: ${new Date(currentUser.subscriptionExpiresAt).toLocaleDateString()}</div>`:''}
-        ${sub?`<div style="font-size:.75rem;color:var(--muted)">${daysLeft} day${daysLeft===1?'':'s'} remaining</div>`:''}
-        ${!sub?`<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%;justify-content:center" onclick="showPublicPage('pricing-page')">Subscribe</button>`:''}
+        ${isStaff ? `
+          <div style="font-weight:700;color:var(--pri)">Staff Access</div>
+          <div style="font-size:.75rem;color:var(--muted);margin-top:2px">Permanent &bull; No Subscription Needed</div>
+        ` : `
+          <div style="font-weight:700;color:${sub?'var(--success)':'var(--danger)'}">${sub?'Active':'Inactive'}</div>
+          ${currentUser.subscriptionExpiresAt?`<div style="font-size:.75rem;color:var(--muted)">Expires: ${new Date(currentUser.subscriptionExpiresAt).toLocaleDateString()}</div>`:''}
+          ${sub?`<div style="font-size:.75rem;color:var(--muted)">${daysLeft} day${daysLeft===1?'':'s'} remaining</div>`:''}
+          ${!sub?`<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%;justify-content:center" onclick="showPublicPage('pricing-page')">Subscribe</button>`:''}
+        `}
       </div>
     </div></div>
     <div class="card"><div class="card-body">
@@ -5063,15 +5084,19 @@ function renderAdminUsers(){
   </div>
   <div class="card"><div class="card-body"><div class="table-wrap"><table><thead><tr><th>User</th><th>Email</th><th>Category</th><th>Course Units</th><th>Role</th><th>Subscription</th><th>Last Login</th><th>Logins</th><th>Actions</th></tr></thead><tbody>
   ${users.map(u=>{
-    const sub=u.subscriptionExpiresAt&&new Date(u.subscriptionExpiresAt)>new Date();
+    const isStaff=isStaffUser(u);
+    const sub=isStaff || (u.subscriptionExpiresAt&&new Date(u.subscriptionExpiresAt)>new Date());
     const lastLogin=u.lastLoginAt?new Date(u.lastLoginAt).toLocaleString():'Never';
     const interests=getUserInterestSummary(u);
+    const subBadge=isStaff
+      ? `<span class="badge badge-success">Staff (Unlimited)</span>`
+      : `<span class="badge ${sub?'badge-success':u.subscriptionExpiresAt?'badge-danger':'badge-muted'}">${sub?'Active':u.subscriptionExpiresAt?'Expired':'None'}</span>`;
     return `<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="avatar-sm">${u.name[0]}</div>${u.name}</div></td>
     <td style="color:var(--muted);font-size:.85rem">${u.email}</td>
     <td style="font-size:.8rem">${interests.categoryLabels.length?interests.categoryLabels.map(label=>`<span class="badge badge-primary" style="margin:0 4px 4px 0">${label}</span>`).join(''):'<span style="color:var(--muted)">None</span>'}</td>
     <td style="font-size:.78rem;color:var(--muted);min-width:220px">${interests.courseTitles.length?interests.courseTitles.join(' • '):'None selected'}</td>
     <td><span class="badge badge-${u.role}">${u.role}</span></td>
-    <td><span class="badge ${sub?'badge-success':u.subscriptionExpiresAt?'badge-danger':'badge-muted'}">${sub?'Active':u.subscriptionExpiresAt?'Expired':'None'}</span></td>
+    <td>${subBadge}</td>
     <td style="font-size:.82rem;color:var(--muted)">${lastLogin}</td>
     <td><span class="badge badge-primary">${u.signInCount||0}</span></td>
     <td>
@@ -5079,9 +5104,10 @@ function renderAdminUsers(){
         <option ${u.role==='student'?'selected':''}>student</option>
         <option ${u.role==='guest'?'selected':''}>guest</option>
         <option ${u.role==='instructor'?'selected':''}>instructor</option>
+        <option ${u.role==='lecturer'?'selected':''}>lecturer</option>
         <option ${u.role==='admin'?'selected':''}>admin</option>
       </select>
-      <button class="btn btn-outline btn-sm" style="margin-left:6px" onclick="extendSubscription('${u.id}')">Extend Sub</button>
+      ${!isStaff?`<button class="btn btn-outline btn-sm" style="margin-left:6px" onclick="extendSubscription('${u.id}')">Extend Sub</button>`:''}
       ${u.role!=='admin'?`<button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="deleteUser('${u.id}')">Delete</button>`:''}
     </td></tr>`;
   }).join('')}
@@ -5282,7 +5308,7 @@ function openAddUserModal(){
   <div class="form-group"><label>Full Name</label><input class="form-control" id="au-name" placeholder="Full name"/></div>
   <div class="form-group"><label>Email</label><input class="form-control" id="au-email" type="email" placeholder="email@example.com"/></div>
   <div class="form-group"><label>Password</label><input class="form-control" id="au-pw" type="password" placeholder="Password"/></div>
-  <div class="form-group"><label>Role</label><select class="form-control" id="au-role"><option>student</option><option>guest</option><option>instructor</option><option>admin</option></select></div>
+  <div class="form-group"><label>Role</label><select class="form-control" id="au-role"><option>student</option><option>guest</option><option>instructor</option><option>lecturer</option><option>admin</option></select></div>
   `,`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="addUser()">Create User</button>`);
 }
 async function addUser(){

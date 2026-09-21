@@ -922,7 +922,7 @@ async function handleAuth(request, env, supabase) {
     const rawEmail = String(body.email || "").trim().toLowerCase();
     const rawPhone = sanitize(body.phoneNumber, 40);
     const password = String(body.password || "");
-    const allowedRoles = ["student", "guest", "instructor", "admin"];
+    const allowedRoles = ["student", "guest", "instructor", "lecturer", "admin"];
     const requestedRole = String(body.role || body.accountType || "student").toLowerCase();
     const role = allowedRoles.includes(requestedRole) ? requestedRole : "student";
 
