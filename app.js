@@ -3354,7 +3354,19 @@ function renderLoginPage(){
     <div class="card"><div class="card-body">
       <div id="login-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
       <div class="form-group"><label>Email or Username</label><input class="form-control" id="l-email" type="text" placeholder="you@example.com or username" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('l-pw')?.focus()"/></div>
-      <div class="form-group"><label>Password</label><input class="form-control" id="l-pw" type="password" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="form-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="margin-bottom:0">Password</label>
+          <a href="#forgot-password" onclick="showPublicPage('forgot-password')" style="font-size:.82rem;color:var(--pri);font-weight:600;text-decoration:none;cursor:pointer">Forgot password?</a>
+        </div>
+        <div style="position:relative;display:flex;align-items:center">
+          <input class="form-control" id="l-pw" type="password" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" style="padding-right:44px;width:100%"/>
+          <button type="button" onclick="togglePasswordVisibility('l-pw', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
+            <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+      </div>
       <button id="login-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doLogin()">Sign In</button>
       <div style="margin-top:14px;text-align:center">
         <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="doGoogleLogin()">
@@ -3374,6 +3386,22 @@ function renderLoginPage(){
       </div>
     </div></div>
   </div></div>${renderFooter()}`;
+}
+
+function togglePasswordVisibility(inputId, btn){
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const isPw = input.type === 'password';
+  input.type = isPw ? 'text' : 'password';
+  if(btn){
+    const eyeShow = btn.querySelector('.eye-show');
+    const eyeHide = btn.querySelector('.eye-hide');
+    if(eyeShow && eyeHide){
+      eyeShow.style.display = isPw ? 'none' : 'block';
+      eyeHide.style.display = isPw ? 'block' : 'none';
+      btn.style.color = isPw ? 'var(--pri)' : 'var(--muted)';
+    }
+  }
 }
 
 function switchLoginType(type){
@@ -3498,7 +3526,16 @@ function renderRegisterPage(){
       <div class="form-group"><label>Full Name</label><input class="form-control" id="r-name" placeholder="Your full name"/></div>
       <div class="form-group"><label>Email</label><input class="form-control" id="r-email" type="email" placeholder="you@example.com"/></div>
       <div class="form-group"><label>Phone Number</label><input class="form-control" id="r-phone" type="tel" placeholder="+256700000000" inputmode="tel"/></div>
-      <div class="form-group"><label>Password</label><input class="form-control" id="r-pw" type="password" placeholder="Create a strong password"/></div>
+      <div class="form-group">
+        <label>Password</label>
+        <div style="position:relative;display:flex;align-items:center">
+          <input class="form-control" id="r-pw" type="password" placeholder="Create a strong password" style="padding-right:44px;width:100%"/>
+          <button type="button" onclick="togglePasswordVisibility('r-pw', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
+            <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+      </div>
       <div class="form-group" id="register-learning-fields">
         <label>Choose Category and Course Units</label>
         <div style="display:flex;flex-direction:column;gap:12px">
@@ -7984,8 +8021,26 @@ function renderResetPasswordPage(){
         <div id="reset-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
         <div id="reset-ok" style="display:none;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--success);margin-bottom:16px"></div>
         ${token ? `
-        <div class="form-group"><label>New password</label><input class="form-control" id="reset-pw" type="password" placeholder="Min 8 characters"/></div>
-        <div class="form-group"><label>Confirm password</label><input class="form-control" id="reset-confirm" type="password" placeholder="Repeat password"/></div>
+        <div class="form-group">
+          <label>New password</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input class="form-control" id="reset-pw" type="password" placeholder="Min 8 characters" style="padding-right:44px;width:100%"/>
+            <button type="button" onclick="togglePasswordVisibility('reset-pw', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
+              <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Confirm password</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input class="form-control" id="reset-confirm" type="password" placeholder="Repeat password" style="padding-right:44px;width:100%"/>
+            <button type="button" onclick="togglePasswordVisibility('reset-confirm', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
+              <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doResetPassword('${token.replace(/'/g,"\\'")}')">Reset password</button>
         ` : `<p style="color:var(--muted);font-size:.9rem;text-align:center">This password reset link is missing or invalid. <a href="#forgot-password" onclick="showPublicPage('forgot-password')" style="color:var(--pri);font-weight:600;cursor:pointer">Request a new link</a>.</p>`}
       </div></div>
