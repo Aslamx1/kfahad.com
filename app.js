@@ -5,6 +5,10 @@
 
 "use strict";
 
+if(typeof window !== 'undefined' && window.location && window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'){
+  window.location.replace(window.location.href.replace('http:', 'https:'));
+}
+
 // ================================================================
 // DATABASE (localStorage)
 // ================================================================
@@ -31,16 +35,6 @@ const DB = {
       users.unshift(primaryAdmin);
     }
     this.set('users', users);
-    const storedCurrentUser = this.get('currentUser');
-    if(storedCurrentUser?.role==='admin'){
-      this.set('currentUser',{
-        ...storedCurrentUser,
-        id:'admin-kfahad',
-        name:'Kandeke Fahad',
-        email:'Admin.kfahad@gmail.com',
-        role:'admin'
-      });
-    }
     if(!this.get('payments')) this.set('payments',[]);
     if(!this.get('appointments')) this.set('appointments',[]);
     if(!this.get('blogPosts')) this.set('blogPosts',[
@@ -443,7 +437,14 @@ async function saveJobToServer(job){
 // ================================================================
 // AUTH STATE
 // ================================================================
-let currentUser = DB.get('currentUser');
+DB.del('currentUser');
+let currentUser = null;
+
+if(typeof window !== 'undefined'){
+  window.addEventListener('beforeunload', () => {
+    DB.del('currentUser');
+  });
+}
 let publicUserStats = {
   registeredUsers:null
 };
@@ -715,6 +716,27 @@ function logout(){
   stopNotificationPolling();
   NOTIFICATION_BACKEND.seenIds.clear();
   goHome();
+}
+async function deleteMyAccount(){
+  if(!currentUser){toast('Please sign in first','warn');return}
+  if(currentUser.role==='admin' || currentUser.id==='admin-kfahad'){
+    toast('The primary Admin account cannot be deleted.','error');
+    return;
+  }
+  if(!confirm('Are you sure you want to delete your KFAHAD Academy account permanently? All your learning progress and data will be wiped immediately.')){
+    return;
+  }
+  const deletingId = currentUser.id;
+  const deletingToken = currentUser.authToken;
+  try {
+    await postAuthApi({action:'delete_own_account'}, {token: deletingToken});
+  } catch(err){
+    console.warn('Delete account API warning:', err.message);
+  }
+  const users = (DB.get('users')||[]).filter(u=>u.id!==deletingId);
+  DB.set('users', users);
+  logout();
+  toast('Your account has been deleted permanently.','success');
 }
 function normalizePhoneNumber(phone){
   return phone.replace(/[^\d+]/g,'');
@@ -1964,6 +1986,7 @@ let currentSection = '';
 
 function getDefaultPageState(){
   if(!currentUser) return {page:'home',section:''};
+  if(currentUser.role==='admin') return {page:'admin',section:'overview'};
   if(currentUser.role==='student') return {page:'dashboard',section:'my-learning'};
   return {page:'dashboard',section:'overview'};
 }
@@ -1975,6 +1998,7 @@ function parseHashRoute(){
   if(hash==='my/learning') return {page:'dashboard',section:'my-learning'};
   const [page,section] = hash.split('/');
   if(page==='dashboard'){
+    if(currentUser?.role==='admin') return {page:'admin',section:'overview'};
     const resolved = section==='courses' ? 'my-learning' : (section||'overview');
     return {page:'dashboard',section:resolved};
   }
@@ -1993,7 +2017,8 @@ function applyRouteState(route){
 function syncHash(){
   let hash = '#home';
   if(currentPage==='dashboard'){
-    if(currentSection==='my-learning') hash = '#my/learning';
+    if(currentUser?.role==='admin') hash = `#admin/${currentSection||'overview'}`;
+    else if(currentSection==='my-learning') hash = '#my/learning';
     else if(currentSection==='tv') hash = '#tv';
     else hash = `#dashboard/${currentSection||'overview'}`;
   }
@@ -2021,6 +2046,7 @@ function showPublicPage(page){
 }
 function showDashboard(section='overview'){
   if(!currentUser){showPublicPage('login-page');return}
+  if(currentUser.role==='admin'){showAdmin('overview');return}
   currentPage='dashboard'; currentSection=section; syncHash(); renderPage();
   if(currentUser.authToken){
     syncCurrentUserFromServer({rerender:true}).catch(()=>{});
@@ -2046,7 +2072,11 @@ function showAdmin(section='overview'){
   window.scrollTo({top:0,behavior:'smooth'});
   closeMobileMenu();
 }
-function goHome(){currentUser?showDashboard():showPublicPage('home')}
+function goHome(){
+  if(!currentUser) return showPublicPage('home');
+  if(currentUser.role==='admin') return showAdmin('overview');
+  return showDashboard();
+}
 function renderPage(){
   if(!currentPage){
     applyRouteState(parseHashRoute() || getDefaultPageState());
@@ -2133,16 +2163,24 @@ function updateNav(){
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
       <span class="nav-user-greeting">Hi, ${currentUser.name.split(' ')[0]}</span>
-      <button class="btn btn-outline btn-sm nav-desktop-only" onclick="showDashboard()">Dashboard</button>
-      ${currentUser.role==='admin'?`<button class="btn btn-warn btn-sm nav-desktop-only" onclick="showAdmin()">Admin</button>`:''}
+      ${currentUser.role==='admin'
+        ? `<button class="btn btn-primary btn-sm nav-desktop-only" onclick="showAdmin('overview')">Admin Panel</button>`
+        : `<button class="btn btn-outline btn-sm nav-desktop-only" onclick="showDashboard()">Dashboard</button>`}
       <div class="dropdown">
         <button class="btn btn-ghost btn-sm icon-btn" onclick="toggleDropdown('user-dd')" aria-label="Open account menu">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
           ${unread>0?`<span class="unread-count">${unread}</span>`:''}
         </button>
         <div class="dropdown-menu" id="user-dd">
-          <div class="dropdown-item" onclick="showDashboard('profile')">My Profile</div>
-          <div class="dropdown-item" onclick="showDashboard('settings')">Settings</div>
+          ${currentUser.role==='admin' ? `
+            <div class="dropdown-item" onclick="showAdmin('overview')">Admin Panel</div>
+            <div class="dropdown-item" onclick="showAdmin('users')">Manage Users</div>
+            <div class="dropdown-item" onclick="showAdmin('courses')">Manage Courses</div>
+            <div class="dropdown-item" onclick="showAdmin('quizzes')">Manage Quizzes</div>
+          ` : `
+            <div class="dropdown-item" onclick="showDashboard('profile')">My Profile</div>
+            <div class="dropdown-item" onclick="showDashboard('settings')">Settings</div>
+          `}
           <div class="dropdown-sep"></div>
           <div class="dropdown-item danger" onclick="logout()">Sign Out</div>
         </div>
@@ -2171,8 +2209,11 @@ function updateMobileMenu(){
   ];
   links.unshift({label:'Search',href:'#',fn:"openSearch()"});
   if(currentUser){
-    links.push({label:'Dashboard',href:'#dashboard/overview',fn:"showDashboard()"});
-    if(currentUser.role==='admin') links.push({label:'Admin Panel',href:'#admin/overview',fn:"showAdmin()"});
+    if(currentUser.role==='admin'){
+      links.push({label:'Admin Panel',href:'#admin/overview',fn:"showAdmin('overview')"});
+    } else {
+      links.push({label:'Dashboard',href:'#dashboard/overview',fn:"showDashboard()"});
+    }
     links.push({label:'Sign Out',href:'#',fn:"logout()"});
   } else {
     links.push({label:'Log In',href:'#login-page',fn:"showPublicPage('login-page')"});
@@ -3079,7 +3120,8 @@ async function doGoogleLogin(){
     const data = await postAuthApi({action:'login_google', idToken: resp});
     const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
     toast(`Welcome, ${user.name.split(' ')[0]}! 👋`,'success');
-    showDashboard(user.role==='student'?'my-learning':'overview');
+    if(user.role==='admin') showAdmin('overview');
+    else showDashboard(user.role==='student'?'my-learning':'overview');
   }catch(error){
     toast(error.message || 'Google sign-in failed.','error');
   }
@@ -3104,7 +3146,8 @@ async function doGoogleRegister(){
     const data = await postAuthApi({action:'login_google', idToken: resp});
     const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
     toast(`Welcome to KFAHAD Academy, ${user.name.split(' ')[0]}! 🎉`,'success');
-    showDashboard();
+    if(user.role==='admin') showAdmin('overview');
+    else showDashboard(user.role==='student'?'my-learning':'overview');
   }catch(error){
     toast(error.message || 'Google sign-in failed.','error');
   }
@@ -3136,7 +3179,8 @@ function processOAuthCallback(){
       .then(data => {
         const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
         toast(`Welcome, ${user.name.split(' ')[0]}! 👋`,'success');
-        showDashboard(user.role==='student'?'my-learning':'overview');
+        if(user.role==='admin') showAdmin('overview');
+        else showDashboard(user.role==='student'?'my-learning':'overview');
       })
       .catch(error => {
         toast(error.message || 'GitHub sign-in failed.','error');
@@ -3269,7 +3313,11 @@ async function doLogin(){
       toast('Continue where you left off','info');
     }
     startChatPolling();
-    showDashboard(user.role==='student'?'my-learning':'overview');
+    if(user.role==='admin'){
+      showAdmin('overview');
+    } else {
+      showDashboard(user.role==='student'?'my-learning':'overview');
+    }
   }catch(error){
     if(isAuthServiceUnavailable(error)){
       const normalizedEmail = (email || '').trim().toLowerCase();
@@ -3292,7 +3340,11 @@ async function doLogin(){
         const csrf = uid();
         const user = setAuthenticatedUser(fallbackUser, token, csrf);
         toast(`Welcome back, ${user.name.split(' ')[0]}! 👋`, 'success');
-        showDashboard('overview');
+        if(user.role==='admin'){
+          showAdmin('overview');
+        } else {
+          showDashboard('overview');
+        }
         return;
       }
     }
@@ -5182,11 +5234,16 @@ function renderChat(){
       <div class="chat-messages whatsapp-chat-messages" id="chat-msgs">
         ${mode==='group' ? renderChatMessages(groupMessages,{group:true}) : renderChatMessages(dmMessages)}
       </div>
-      <div class="chat-input-area whatsapp-chat-input" id="chat-input-container">
+        <input type="file" id="chat-audio-file-input" accept="audio/*" capture="microphone" style="display:none" onchange="if(this.files&&this.files[0])handleVoiceFileUpload(this.files[0])"/>
         <div id="chat-input-controls" style="display:flex;align-items:center;gap:8px;width:100%">
           <input class="form-control" id="chat-input" placeholder="${mode==='group'?'Send a broadcast message...':'Message '+(dmPartner?.name||'')+'...'}" onkeydown="if(event.key==='Enter')sendChatMsg()" style="flex:1"/>
-          <button id="chat-mic-btn" class="btn btn-outline" onclick="startAudioRecording()" title="Record Voice Message (WhatsApp style)" style="padding:10px 14px;border-radius:50%">
-            🎙️
+          <button id="chat-mic-btn" class="btn btn-outline" onclick="startAudioRecording()" title="Record Voice Message (WhatsApp style)" style="padding:10px 14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
           </button>
           <button class="btn btn-primary" onclick="sendChatMsg()" style="padding:10px 18px;white-space:nowrap" ${mode==='dm'&&!dmPartner?'disabled':''}>
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke-linecap="round"/></svg>
@@ -5212,15 +5269,99 @@ let chatAudioChunks = [];
 let chatRecordingTimer = null;
 let chatRecordingSeconds = 0;
 
+function requestUserAudioStream(){
+  if(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function'){
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+  const legacyGetUserMedia = navigator.getUserMedia ||
+    navigator.webkitGetUserMedia ||
+    navigator.mozGetUserMedia ||
+    navigator.msGetUserMedia;
+  if(legacyGetUserMedia){
+    return new Promise((resolve, reject) => {
+      legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
+    });
+  }
+  return Promise.reject(new Error('MICROPHONE_API_NOT_SUPPORTED'));
+}
+
+function getSupportedAudioMimeType(){
+  if(typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/wav'
+  ];
+  for(const mime of candidates){
+    if(typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(mime)){
+      return mime;
+    }
+  }
+  return '';
+}
+
+function promptAudioFileFallback(reason){
+  const fileInput = document.getElementById('chat-audio-file-input');
+  if(fileInput){
+    if(reason) toast(reason, 'info');
+    fileInput.click();
+    return true;
+  }
+  return false;
+}
+
+function handleVoiceFileUpload(file){
+  if(!file) return;
+  if(!file.type.startsWith('audio/') && !file.name.match(/\.(mp3|wav|m4a|aac|ogg|webm|amr|3gp|flac)$/i)){
+    toast('Please select an audio file or voice recording', 'error');
+    return;
+  }
+  if(file.size > 25 * 1024 * 1024){
+    toast('Audio recording too large (max 25MB)', 'error');
+    return;
+  }
+  toast('Uploading voice note...', 'info');
+  const reader = new FileReader();
+  reader.onload = () => {
+    sendVoiceMessage(reader.result);
+    const input = document.getElementById('chat-audio-file-input');
+    if(input) input.value = '';
+  };
+  reader.onerror = () => {
+    toast('Failed to process voice note', 'error');
+  };
+  reader.readAsDataURL(file);
+}
+
 async function startAudioRecording(){
-  try {
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      toast('Microphone is not supported in this browser','error');
+  if(!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+    if(location.protocol === 'http:' && !location.hostname.includes('localhost')){
+      location.replace('https://' + location.host + location.pathname + location.search + location.hash);
       return;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    promptAudioFileFallback('Opening voice clip recorder...');
+    return;
+  }
+
+  if(typeof MediaRecorder === 'undefined'){
+    promptAudioFileFallback('Direct recording not supported; opening voice clip recorder...');
+    return;
+  }
+
+  try {
+    const stream = await requestUserAudioStream();
     chatAudioChunks = [];
-    chatMediaRecorder = new MediaRecorder(stream);
+    const mimeType = getSupportedAudioMimeType();
+    const recorderOptions = mimeType ? { mimeType } : undefined;
+    try {
+      chatMediaRecorder = recorderOptions ? new MediaRecorder(stream, recorderOptions) : new MediaRecorder(stream);
+    } catch(err) {
+      chatMediaRecorder = new MediaRecorder(stream);
+    }
     chatMediaRecorder.ondataavailable = e => {
       if(e.data && e.data.size > 0) chatAudioChunks.push(e.data);
     };
@@ -5228,7 +5369,8 @@ async function startAudioRecording(){
       stream.getTracks().forEach(t => t.stop());
       clearInterval(chatRecordingTimer);
       if(!chatAudioChunks.length) return;
-      const blob = new Blob(chatAudioChunks, { type: 'audio/webm' });
+      const actualType = chatMediaRecorder.mimeType || mimeType || 'audio/webm';
+      const blob = new Blob(chatAudioChunks, { type: actualType });
       const reader = new FileReader();
       reader.onloadend = () => {
         sendVoiceMessage(reader.result);
@@ -5251,8 +5393,11 @@ async function startAudioRecording(){
       if(t) t.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
     }, 1000);
   } catch(err) {
-    console.error('Audio recording failed:', err);
-    toast('Microphone permission denied or device unavailable', 'error');
+    console.warn('Microphone stream error, opening fallback recorder:', err);
+    if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
+      toast('Microphone access was denied. Opening voice clip recorder...', 'warning');
+    }
+    promptAudioFileFallback('Opening voice clip recorder...');
   }
 }
 
@@ -5550,10 +5695,13 @@ function renderSettings(){
       <div class="form-group"><label>Confirm Password</label><input class="form-control" id="s-conf" type="password"/></div>
       <button class="btn btn-primary" onclick="changePassword()">Update Password</button>
     </div></div>
-    <div class="card"><div class="card-body">
+    <div class="card" style="border-left:4px solid var(--danger)"><div class="card-body">
       <h3 style="font-family:var(--font-h);margin-bottom:10px;color:var(--danger)">Danger Zone</h3>
-      <p style="color:var(--muted);font-size:.875rem;margin-bottom:16px">Sign out from all sessions.</p>
-      <button class="btn btn-danger" onclick="logout()">Sign Out</button>
+      <p style="color:var(--muted);font-size:.875rem;margin-bottom:16px">Permanently delete your account and all learning progress, or sign out.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-danger" onclick="deleteMyAccount()">Delete My Account</button>
+        <button class="btn btn-outline" onclick="logout()">Sign Out</button>
+      </div>
     </div></div>
   </div>`;
 }
@@ -5625,7 +5773,7 @@ function renderAdminLayout(){
       <div style="font-weight:700;font-size:.9rem">${currentUser.name}</div>
     </div>
     ${nav.map(n=>`<div class="sidebar-section"><a href="#admin/${n.section}" class="sidebar-item ${currentSection===n.section?'active':''}" onclick="showAdmin('${n.section}')">${n.icon} ${n.label}</a></div>`).join('')}
-    <div class="sidebar-section"><a href="#dashboard/overview" class="sidebar-item" onclick="showDashboard()">← Back to Dashboard</a></div>
+    <div class="sidebar-section"><a href="#home" class="sidebar-item" onclick="logout()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="17" height="17" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span>Sign Out</span></a></div>
   </div>
   <div class="main-content">${content}</div></div>`;
 }

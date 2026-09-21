@@ -1272,6 +1272,26 @@ async function handleAuth(request, env, supabase) {
     return json(request, env, 200, { success: true });
   }
 
+  // 7c-2. USER DELETE OWN ACCOUNT
+  if (action === "delete_own_account") {
+    const session = await getSession(request, env, supabase);
+    if (!session) return json(request, env, 401, { error: "Please sign in." });
+    if (session.user_id === "admin-kfahad" || String(session.role).toLowerCase() === "admin") {
+      return json(request, env, 400, { error: "Primary admin account cannot be deleted." });
+    }
+    const targetUserId = session.user_id;
+    if (env.DB) {
+      try {
+        await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId).run();
+        await env.DB.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(targetUserId).run();
+        await env.DB.prepare("DELETE FROM learning_progress WHERE user_id = ?").bind(targetUserId).run();
+      } catch (err) {
+        return json(request, env, 500, { error: "Failed to delete account: " + err.message });
+      }
+    }
+    return json(request, env, 200, { success: true, message: "Account deleted successfully." });
+  }
+
   // 7d. CHANGE PASSWORD
   if (action === "change_password") {
     const session = await getSession(request, env, supabase);
