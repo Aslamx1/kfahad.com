@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { securityHeaders, jsonResponse, readJson, sanitizeString, firewallCheck, enforceRateLimit, passwordProblem } = require("./_security.js");
+const { securityHeaders, jsonResponse } = require("./security-headers.js");
+const { readJson, sanitizeString, firewallCheck, enforceRateLimit, passwordProblem } = require("./_security.js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://stbpjtzeaxxzuzagzhmz.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";

@@ -589,6 +589,90 @@ exports.handler = async (event) => {
       return jsonResponse(200, { user: buildSafeUser(updated || {}), ok: true });
     }
 
+    // ---- FORGOT PASSWORD ----
+    if (action === "forgot_password") {
+      const email = normalizeEmail(body.email);
+      if (!validateEmail(email)) return jsonResponse(400, { error: "Please provide a valid email address." });
+
+      let user = null;
+      if (supabase) {
+        const { data } = await supabase.from("users").select("id, email, name").eq("email", email).maybeSingle();
+        user = data || null;
+      }
+
+      if (!user) {
+        return jsonResponse(200, { message: "If an account exists, a reset link has been sent to your email." });
+      }
+
+      const token = uid() + uid();
+      const expiresAt = Date.now() + 15 * 60 * 1000;
+
+      if (supabase) {
+        await supabase.from("password_resets").insert({
+          user_id: user.id,
+          email: user.email,
+          token,
+          expires_at: expiresAt,
+          used: false
+        }).catch(() => {});
+      }
+
+      const appUrl = process.env.APP_URL || "https://kfahad.com";
+      const resetLink = `${appUrl}/#reset-password?token=${token}`;
+      const resendKey = process.env.RESEND_API_KEY || "";
+
+      if (resendKey) {
+        try {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: process.env.RESEND_FROM_EMAIL || "no-reply@kfahad.academy",
+              to: user.email,
+              subject: "Reset your KFAHAD Academy password",
+              html: `<p>Hello ${user.name || ""},</p><p>Click <a href="${resetLink}">here</a> to reset your password. This link expires in 15 minutes.</p>`,
+            }),
+          });
+        } catch (mailErr) {
+          console.error("Resend email failed:", mailErr.message);
+        }
+        return jsonResponse(200, { success: true, emailSent: true, message: "If an account exists, a reset link has been sent to your email." });
+      }
+
+      return jsonResponse(200, { success: true, emailSent: false, token, resetUrl: resetLink, message: "Password reset link generated successfully." });
+    }
+
+    // ---- RESET PASSWORD ----
+    if (action === "reset_password") {
+      const token = sanitizeString(body.token, 256);
+      const password = String(body.password || "");
+      const confirm = String(body.confirm || "");
+
+      if (!token) return jsonResponse(400, { error: "Reset token is missing." });
+      if (password.length < 8) return jsonResponse(400, { error: "Password must be at least 8 characters long." });
+      if (confirm && password !== confirm) return jsonResponse(400, { error: "Passwords do not match." });
+
+      if (!supabase) return jsonResponse(500, { error: "Database is temporarily unavailable." });
+
+      const { data: reset, error: resetError } = await supabase
+        .from("password_resets")
+        .select("*")
+        .eq("token", token)
+        .eq("used", false)
+        .maybeSingle();
+
+      if (resetError || !reset || Number(reset.expires_at) < Date.now()) {
+        return jsonResponse(400, { error: "This password reset link is invalid or has expired." });
+      }
+
+      const passwordHash = hashPassword(password);
+      await supabase.from("users").update({ password_hash: passwordHash, failed_login_count: 0, locked_until: null }).eq("id", reset.user_id);
+      await supabase.from("password_resets").update({ used: true }).eq("token", token);
+      await supabase.from("user_sessions").delete().eq("user_id", reset.user_id);
+
+      return jsonResponse(200, { success: true, message: "Password updated successfully. You can now sign in." });
+    }
+
     return jsonResponse(400, { error: "Unknown action." });
   } catch (error) {
     console.error("Auth error:", error.message);

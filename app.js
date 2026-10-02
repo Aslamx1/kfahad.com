@@ -2135,8 +2135,10 @@ function getDefaultPageState(){
 }
 
 function parseHashRoute(){
-  const hash = window.location.hash.replace(/^#/,'').trim();
-  if(!hash) return null;
+  const rawHash = window.location.hash.replace(/^#/,'').trim();
+  if(!rawHash) return null;
+  const qIdx = rawHash.indexOf('?');
+  const hash = qIdx >= 0 ? rawHash.substring(0, qIdx) : rawHash;
   if(hash==='tv') return {page:'dashboard',section:'tv'};
   if(hash==='my/learning') return {page:'dashboard',section:'my-learning'};
   const [page,section] = hash.split('/');
@@ -2166,6 +2168,10 @@ function syncHash(){
     else hash = `#dashboard/${currentSection||'overview'}`;
   }
   else if(currentPage==='admin') hash = `#admin/${currentSection||'overview'}`;
+  else if(currentPage==='reset-password'){
+    const token = typeof getResetPasswordToken === 'function' ? getResetPasswordToken() : '';
+    hash = token ? `#reset-password?token=${encodeURIComponent(token)}` : '#reset-password';
+  }
   else if(currentPage) hash = `#${currentPage}`;
   if(window.location.hash!==hash){
     window.location.hash = hash;
@@ -3372,10 +3378,6 @@ function renderLoginPage(){
         <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="doGoogleLogin()">
           <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right:8px"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
           Continue with Google
-        </button>
-        <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px" onclick="doGithubLogin()">
-          <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right:8px" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          Continue with GitHub
         </button>
       </div>
       <p style="text-align:center;color:var(--muted);font-size:.85rem;margin-top:18px">Don't have an account? <a href="#register-page" onclick="showPublicPage('register-page')" style="color:var(--pri);font-weight:600;cursor:pointer">Create one</a></p>
@@ -7961,9 +7963,13 @@ function renderSystemStatusPage(){
 // ================================================================
 // FORGOT PASSWORD
 // ================================================================
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
 function renderForgotPasswordPage(){
   return `<div style="min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;padding:40px 24px;background:linear-gradient(135deg,#051a3b 0%,var(--bg) 100%)">
-    <div style="width:100%;max-width:420px">
+    <div style="width:100%;max-width:440px">
       <div style="text-align:center;margin-bottom:32px">
         <span class="logo-text logo-text-auth" style="font-size:1.5rem;display:inline-flex;margin-bottom:8px" onclick="showPublicPage('home')">
           <img class="logo-mark logo-mark-auth" src="KF%20LOGO.png" alt="KFAHAD Academy logo"/>
@@ -7973,39 +7979,97 @@ function renderForgotPasswordPage(){
           </span>
         </span>
         <h2 style="font-family:var(--font-h);font-size:1.6rem;font-weight:800;margin-bottom:6px">Forgot password?</h2>
-        <p style="color:var(--muted);font-size:.875rem">Enter your email and we'll send you a reset link.</p>
+        <p style="color:var(--muted);font-size:.875rem">Enter your registered email address and we'll help you reset your password.</p>
       </div>
       <div class="card"><div class="card-body">
-        <div id="forgot-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
-        <div id="forgot-ok" style="display:none;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--success);margin-bottom:16px"></div>
-        <div class="form-group"><label>Email</label><input class="form-control" id="forgot-email" type="email" placeholder="you@example.com"/></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doForgotPassword()">Send reset link</button>
+        <div id="forgot-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px;line-height:1.5"></div>
+        <div id="forgot-ok" style="display:none;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:12px 14px;font-size:.85rem;color:var(--success);margin-bottom:16px;line-height:1.5"></div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input class="form-control" id="forgot-email" type="email" placeholder="you@example.com" autocomplete="email" onkeydown="if(event.key==='Enter')doForgotPassword()"/>
+        </div>
+        <button id="forgot-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doForgotPassword()">Send Reset Link</button>
         <p style="text-align:center;color:var(--muted);font-size:.85rem;margin-top:18px">Remember your password? <a href="#login-page" onclick="showPublicPage('login-page')" style="color:var(--pri);font-weight:600;cursor:pointer">Sign in</a></p>
       </div></div>
     </div>
   </div>${renderFooter()}`;
 }
+
 async function doForgotPassword(){
-  const email=document.getElementById('forgot-email')?.value.trim();
-  const err=document.getElementById('forgot-err');
-  const ok=document.getElementById('forgot-ok');
-  if(!email){if(err){err.style.display='block';err.textContent='Please enter your email.'}return}
-  if(err) err.style.display='none'; if(ok) ok.style.display='none';
+  const emailInput = document.getElementById('forgot-email');
+  const email = emailInput?.value.trim();
+  const err = document.getElementById('forgot-err');
+  const ok = document.getElementById('forgot-ok');
+  const btn = document.getElementById('forgot-submit-btn');
+
+  if(!email || !email.includes('@')){
+    if(err){ err.style.display='block'; err.textContent='Please enter a valid email address.'; }
+    return;
+  }
+  if(err) err.style.display='none';
+  if(ok) ok.style.display='none';
+
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+  }
+
   try{
-    const data=await postAuthApi({action:'forgot_password',email});
-    if(ok){ok.style.display='block';ok.textContent=data.message||'If an account exists, a reset link has been sent.'}
+    const data = await postAuthApi({action:'forgot_password', email});
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = 'Send Reset Link';
+    }
+    if(ok){
+      ok.style.display = 'block';
+      if(data.token){
+        window._pendingResetToken = data.token;
+        ok.innerHTML = `<div style="font-weight:700;margin-bottom:6px">Reset Link Ready!</div>
+          <div style="font-size:.85rem;margin-bottom:12px">${data.message || 'You can now set a new password.'}</div>
+          <button type="button" class="btn btn-primary btn-sm" style="width:100%;justify-content:center" onclick="goToResetWithToken('${data.token}')">Set New Password Now</button>`;
+      } else {
+        ok.textContent = data.message || 'If an account exists with that email, a password reset link has been sent.';
+      }
+    }
   }catch(error){
-    if(err){err.style.display='block';err.textContent=error.message||'Something went wrong. Please try again.'}
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = 'Send Reset Link';
+    }
+    if(err){
+      err.style.display = 'block';
+      err.textContent = error.message || 'Something went wrong. Please try again.';
+    }
   }
 }
 
-// ================================================================
-// RESET PASSWORD
-// ================================================================
+function goToResetWithToken(token){
+  window._pendingResetToken = token;
+  window.location.hash = `#reset-password?token=${encodeURIComponent(token)}`;
+  showPublicPage('reset-password');
+}
+
+function getResetPasswordToken(){
+  const searchParams = new URLSearchParams(window.location.search);
+  let token = searchParams.get('token') || searchParams.get('code') || '';
+  if(token) return token.trim();
+
+  const hash = window.location.hash || '';
+  const qIdx = hash.indexOf('?');
+  if(qIdx >= 0){
+    const hashParams = new URLSearchParams(hash.substring(qIdx + 1));
+    token = hashParams.get('token') || hashParams.get('code') || '';
+    if(token) return token.trim();
+  }
+
+  if(window._pendingResetToken) return String(window._pendingResetToken).trim();
+  return '';
+}
+
 function renderResetPasswordPage(){
-  const token=new URLSearchParams(window.location.search).get('token')||'';
+  const token = getResetPasswordToken();
   return `<div style="min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;padding:40px 24px;background:linear-gradient(135deg,#051a3b 0%,var(--bg) 100%)">
-    <div style="width:100%;max-width:420px">
+    <div style="width:100%;max-width:440px">
       <div style="text-align:center;margin-bottom:32px">
         <span class="logo-text logo-text-auth" style="font-size:1.5rem;display:inline-flex;margin-bottom:8px" onclick="showPublicPage('home')">
           <img class="logo-mark logo-mark-auth" src="KF%20LOGO.png" alt="KFAHAD Academy logo"/>
@@ -8014,53 +8078,105 @@ function renderResetPasswordPage(){
             <span class="logo-academy">Academy</span>
           </span>
         </span>
-        <h2 style="font-family:var(--font-h);font-size:1.6rem;font-weight:800;margin-bottom:6px">Reset password</h2>
-        <p style="color:var(--muted);font-size:.875rem">Enter your new password below.</p>
+        <h2 style="font-family:var(--font-h);font-size:1.6rem;font-weight:800;margin-bottom:6px">Create New Password</h2>
+        <p style="color:var(--muted);font-size:.875rem">Enter and confirm your new secure password.</p>
       </div>
       <div class="card"><div class="card-body">
-        <div id="reset-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px"></div>
-        <div id="reset-ok" style="display:none;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--success);margin-bottom:16px"></div>
-        ${token ? `
+        <div id="reset-err" style="display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px 14px;font-size:.85rem;color:var(--danger);margin-bottom:16px;line-height:1.5"></div>
+        <div id="reset-ok" style="display:none;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:12px 14px;font-size:.85rem;color:var(--success);margin-bottom:16px;line-height:1.5"></div>
+        
+        <div class="form-group" style="${token ? 'display:none' : ''}">
+          <label>Reset Token / Code</label>
+          <input class="form-control" id="reset-token-input" type="text" placeholder="Paste your reset token" value="${escapeHtml(token)}"/>
+        </div>
+
         <div class="form-group">
-          <label>New password</label>
+          <label>New Password</label>
           <div style="position:relative;display:flex;align-items:center">
-            <input class="form-control" id="reset-pw" type="password" placeholder="Min 8 characters" style="padding-right:44px;width:100%"/>
+            <input class="form-control" id="reset-pw" type="password" placeholder="At least 8 characters" autocomplete="new-password" style="padding-right:44px;width:100%"/>
             <button type="button" onclick="togglePasswordVisibility('reset-pw', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
               <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             </button>
           </div>
         </div>
+
         <div class="form-group">
-          <label>Confirm password</label>
+          <label>Confirm Password</label>
           <div style="position:relative;display:flex;align-items:center">
-            <input class="form-control" id="reset-confirm" type="password" placeholder="Repeat password" style="padding-right:44px;width:100%"/>
+            <input class="form-control" id="reset-confirm" type="password" placeholder="Repeat new password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doResetPassword()" style="padding-right:44px;width:100%"/>
             <button type="button" onclick="togglePasswordVisibility('reset-confirm', this)" aria-label="Toggle password visibility" title="Show or hide password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;justify-content:center;transition:color .2s">
               <svg class="eye-show" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg class="eye-hide" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             </button>
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doResetPassword('${token.replace(/'/g,"\\'")}')">Reset password</button>
-        ` : `<p style="color:var(--muted);font-size:.9rem;text-align:center">This password reset link is missing or invalid. <a href="#forgot-password" onclick="showPublicPage('forgot-password')" style="color:var(--pri);font-weight:600;cursor:pointer">Request a new link</a>.</p>`}
+
+        <button id="reset-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="doResetPassword()">Save New Password</button>
+
+        <p style="text-align:center;color:var(--muted);font-size:.85rem;margin-top:18px">
+          Need a new reset link? <a href="#forgot-password" onclick="showPublicPage('forgot-password')" style="color:var(--pri);font-weight:600;cursor:pointer">Request here</a>
+        </p>
       </div></div>
     </div>
   </div>${renderFooter()}`;
 }
-async function doResetPassword(token){
-  const pw=document.getElementById('reset-pw')?.value||'';
-  const confirm=document.getElementById('reset-confirm')?.value||'';
-  const err=document.getElementById('reset-err');
-  const ok=document.getElementById('reset-ok');
-  if(!token){if(err){err.style.display='block';err.textContent='Invalid reset link.'}return}
-  if(pw.length<8){if(err){err.style.display='block';err.textContent='Password must be at least 8 characters.'}return}
-  if(pw!==confirm){if(err){err.style.display='block';err.textContent='Passwords do not match.'}return}
-  if(err) err.style.display='none'; if(ok) ok.style.display='none';
+
+async function doResetPassword(passedToken){
+  const tokenInput = document.getElementById('reset-token-input');
+  const token = (passedToken || (tokenInput ? tokenInput.value.trim() : '')) || getResetPasswordToken();
+  const pw = document.getElementById('reset-pw')?.value || '';
+  const confirm = document.getElementById('reset-confirm')?.value || '';
+  const err = document.getElementById('reset-err');
+  const ok = document.getElementById('reset-ok');
+  const btn = document.getElementById('reset-submit-btn');
+
+  if(!token){
+    if(err){ err.style.display='block'; err.textContent='Reset token is missing. Please request a new reset link.'; }
+    return;
+  }
+  if(!pw || pw.length < 8){
+    if(err){ err.style.display='block'; err.textContent='Password must be at least 8 characters long.'; }
+    return;
+  }
+  if(pw !== confirm){
+    if(err){ err.style.display='block'; err.textContent='Passwords do not match. Please verify and try again.'; }
+    return;
+  }
+
+  if(err) err.style.display='none';
+  if(ok) ok.style.display='none';
+
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = 'Updating Password...';
+  }
+
   try{
-    const data=await postAuthApi({action:'reset_password',token,password:pw});
-    if(ok){ok.style.display='block';ok.textContent=data.message||'Password reset successfully. You may now log in.'}
+    const data = await postAuthApi({action:'reset_password', token, password: pw, confirm: confirm});
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = 'Save New Password';
+    }
+    if(ok){
+      ok.style.display = 'block';
+      ok.innerHTML = `<div style="font-weight:700;margin-bottom:4px">Success!</div>
+        <div>${data.message || 'Password reset successfully! Redirecting to login...'}</div>`;
+    }
+    window._pendingResetToken = '';
+    toast(data.message || 'Password reset successfully! Please sign in.', 'success');
+    setTimeout(()=>{
+      showPublicPage('login-page');
+    }, 1800);
   }catch(error){
-    if(err){err.style.display='block';err.textContent=error.message||'Something went wrong. Please try again.'}
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = 'Save New Password';
+    }
+    if(err){
+      err.style.display = 'block';
+      err.textContent = error.message || 'Failed to reset password. The link may have expired.';
+    }
   }
 }
 

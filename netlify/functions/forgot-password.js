@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { securityHeaders, jsonResponse, readJson, sanitizeString, normalizeEmail, isValidEmail, firewallCheck, enforceRateLimit } = require("./_security.js");
+const { securityHeaders, jsonResponse } = require("./security-headers.js");
+const { readJson, sanitizeString, normalizeEmail, isValidEmail, firewallCheck, enforceRateLimit } = require("./_security.js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://stbpjtzeaxxzuzagzhmz.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -78,7 +79,11 @@ exports.handler = async (event) => {
       }
     }
 
-    return jsonResponse(200, { message: "If an account exists, a reset link has been sent to your email." }, {}, event);
+    if (RESEND_API_KEY) {
+      return jsonResponse(200, { success: true, emailSent: true, message: "If an account exists, a reset link has been sent to your email." }, {}, event);
+    }
+
+    return jsonResponse(200, { success: true, emailSent: false, token, resetUrl: resetLink, message: "Password reset link generated successfully." }, {}, event);
   } catch (err) {
     console.error("Forgot password error:", err.message);
     return jsonResponse(500, { error: "Something went wrong. Please try again." }, {}, event);

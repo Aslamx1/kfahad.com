@@ -949,18 +949,276 @@ async function handleCourseVideoUpload(request, env, supabase) {
   return json(request, env, 200, { secureUrl: publicData.publicUrl, path, bucket });
 }
 
+async function ensurePasswordResetsTable(env) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        token TEXT UNIQUE NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used INTEGER NOT NULL DEFAULT 0
+      )
+    `).run();
+  } catch (err) {
+    console.warn("ensurePasswordResetsTable:", err.message);
+  }
+}
+
+async function handleForgotPassword(body, request, env, supabase) {
+  const rawEmail = String(body.email || "").trim().toLowerCase();
+  if (!rawEmail || !rawEmail.includes("@")) {
+    return json(request, env, 400, { error: "Please enter a valid email address." });
+  }
+
+  await ensurePasswordResetsTable(env);
+
+  let targetUserId = null;
+  let targetEmail = rawEmail;
+  let targetName = "User";
+
+  // Check SYSTEM_USERS first (including admin)
+  const sysUser = SYSTEM_USERS.find(
+    (u) =>
+      u.email.toLowerCase() === rawEmail ||
+      (u.aliases && u.aliases.map((a) => a.toLowerCase()).includes(rawEmail))
+  );
+  if (sysUser) {
+    targetUserId = sysUser.id;
+    targetEmail = sysUser.email;
+    targetName = sysUser.name;
+  }
+
+  // Check D1 SQL database
+  if (!targetUserId && env.DB) {
+    try {
+      const dbUser = await env.DB.prepare(
+        "SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?)"
+      ).bind(rawEmail).first();
+      if (dbUser) {
+        targetUserId = dbUser.id;
+        targetEmail = dbUser.email;
+        targetName = dbUser.name || "User";
+      }
+    } catch (e) {
+      console.warn("D1 find user for reset:", e.message);
+    }
+  }
+
+  // Check Supabase if configured
+  if (!targetUserId && supabase) {
+    try {
+      const { data } = await supabase.from("users").select("id, name, email").eq("email", rawEmail).maybeSingle();
+      if (data) {
+        targetUserId = data.id;
+        targetEmail = data.email;
+        targetName = data.name || "User";
+      }
+    } catch (e) {
+      console.warn("Supabase find user for reset:", e.message);
+    }
+  }
+
+  if (!targetUserId) {
+    return json(request, env, 200, {
+      success: true,
+      message: "If an account exists with that email, a password reset link has been sent."
+    });
+  }
+
+  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+  // Insert into D1
+  if (env.DB) {
+    try {
+      await env.DB.prepare(
+        "INSERT INTO password_resets (id, user_id, email, token, expires_at, used) VALUES (?, ?, ?, ?, ?, 0)"
+      ).bind(crypto.randomUUID(), targetUserId, targetEmail, token, expiresAt).run();
+    } catch (e) {
+      console.error("D1 save reset token error:", e.message);
+    }
+  }
+
+  // Insert into Supabase if available
+  if (supabase) {
+    try {
+      await supabase.from("password_resets").insert({
+        user_id: targetUserId,
+        email: targetEmail,
+        token,
+        expires_at: expiresAt,
+        used: false
+      });
+    } catch (e) {
+      console.warn("Supabase save reset token:", e.message);
+    }
+  }
+
+  const appUrl = env.APP_URL || "https://kfahad.com";
+  const resetUrl = `${appUrl}/#reset-password?token=${token}`;
+
+  let emailSent = false;
+  if (env.RESEND_API_KEY) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: env.RESEND_FROM_EMAIL || "KFAHAD Academy <no-reply@kfahad.academy>",
+          to: targetEmail,
+          subject: "Reset your KFAHAD Academy password",
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0d1b2a;color:#ffffff;border-radius:12px">
+            <h2 style="color:#38bdf8;margin-bottom:16px">Password Reset Request</h2>
+            <p>Hello ${targetName},</p>
+            <p>We received a request to reset the password for your KFAHAD Academy account.</p>
+            <p style="margin:24px 0">
+              <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block">Reset Password</a>
+            </p>
+            <p style="color:#94a3b8;font-size:0.85rem">This link will expire in 15 minutes. If you did not request this, you can safely ignore this email.</p>
+          </div>`
+        })
+      });
+      if (res.ok) emailSent = true;
+    } catch (mailErr) {
+      console.warn("Resend email failed:", mailErr.message);
+    }
+  }
+
+  if (emailSent) {
+    return json(request, env, 200, {
+      success: true,
+      emailSent: true,
+      message: "A password reset link has been sent to your email. Please check your inbox and follow the link to reset your password."
+    });
+  } else {
+    return json(request, env, 200, {
+      success: true,
+      emailSent: false,
+      token,
+      resetUrl,
+      message: "Password reset link generated successfully."
+    });
+  }
+}
+
+async function handleResetPassword(body, request, env, supabase) {
+  const token = String(body.token || "").trim();
+  const password = String(body.password || "");
+  const confirm = String(body.confirm || "");
+
+  if (!token) {
+    return json(request, env, 400, { error: "Reset token is required." });
+  }
+  if (!password || password.length < 8) {
+    return json(request, env, 400, { error: "Password must be at least 8 characters long." });
+  }
+  if (confirm && password !== confirm) {
+    return json(request, env, 400, { error: "Passwords do not match." });
+  }
+
+  await ensurePasswordResetsTable(env);
+
+  let resetRecord = null;
+
+  // Check D1
+  if (env.DB) {
+    try {
+      resetRecord = await env.DB.prepare(
+        "SELECT * FROM password_resets WHERE token = ? AND used = 0"
+      ).bind(token).first();
+    } catch (e) {
+      console.warn("D1 reset token lookup error:", e.message);
+    }
+  }
+
+  // Check Supabase if not found in D1
+  if (!resetRecord && supabase) {
+    try {
+      const { data } = await supabase.from("password_resets").select("*").eq("token", token).eq("used", false).maybeSingle();
+      if (data) resetRecord = data;
+    } catch (e) {
+      console.warn("Supabase reset token lookup error:", e.message);
+    }
+  }
+
+  if (!resetRecord) {
+    return json(request, env, 400, { error: "This password reset link is invalid or has already been used." });
+  }
+
+  if (Number(resetRecord.expires_at) < Date.now()) {
+    return json(request, env, 400, { error: "This password reset link has expired. Please request a new one." });
+  }
+
+  const salt = crypto.randomUUID();
+  const passwordHash = `${salt}:${await sha256Hex(`${salt}:${password}`)}`;
+  const userId = resetRecord.user_id;
+  const userEmail = resetRecord.email;
+
+  // Update in D1
+  if (env.DB) {
+    try {
+      const updated = await env.DB.prepare(
+        "UPDATE users SET password_hash = ? WHERE id = ? OR LOWER(email) = LOWER(?)"
+      ).bind(passwordHash, userId, userEmail.toLowerCase()).run();
+
+      if (!updated.meta?.changes && userId === "admin-kfahad") {
+        const adminUser = SYSTEM_USERS.find(u => u.id === "admin-kfahad");
+        if (adminUser) {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO users (id, name, email, username, password_hash, role, phone_number, bio, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          ).bind(adminUser.id, adminUser.name, adminUser.email, adminUser.username, passwordHash, adminUser.role, adminUser.phoneNumber, adminUser.bio, Date.now(), Date.now()).run();
+        }
+      }
+
+      await env.DB.prepare("UPDATE password_resets SET used = 1 WHERE token = ?").bind(token).run();
+      await env.DB.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(userId).run();
+    } catch (err) {
+      console.error("D1 update password on reset error:", err.message);
+      return json(request, env, 500, { error: "Failed to update password: " + err.message });
+    }
+  }
+
+  // Update in Supabase if available
+  if (supabase) {
+    try {
+      await supabase.from("users").update({
+        password_hash: passwordHash,
+        failed_login_count: 0,
+        locked_until: null
+      }).eq("id", userId);
+
+      await supabase.from("password_resets").update({ used: true }).eq("token", token);
+      await supabase.from("user_sessions").delete().eq("user_id", userId);
+    } catch (err) {
+      console.warn("Supabase update on reset:", err.message);
+    }
+  }
+
+  return json(request, env, 200, {
+    success: true,
+    message: "Password updated successfully! You can now sign in with your new password."
+  });
+}
+
 async function handleAuth(request, env, supabase) {
   const url = new URL(request.url);
 
-  if (url.pathname === "/api/forgot-password") {
-    return json(request, env, 200, { message: "If an account exists, a reset link has been sent to your email." });
-  }
-  if (url.pathname === "/api/reset-password") {
-    return json(request, env, 200, { message: "Password reset successfully. You may now log in." });
-  }
-
   if (request.method !== "POST") return json(request, env, 405, { error: "Method not allowed." });
   const { data: body, error: parseError } = await readJson(request);
+  if (parseError) return json(request, env, 400, { error: "Invalid request body." });
+
+  if (url.pathname === "/api/forgot-password") {
+    return await handleForgotPassword(body, request, env, supabase);
+  }
+  if (url.pathname === "/api/reset-password") {
+    return await handleResetPassword(body, request, env, supabase);
+  }
   if (parseError) return json(request, env, 400, { error: "Invalid request body." });
 
   const action = body.action;
@@ -1009,7 +1267,22 @@ async function handleAuth(request, env, supabase) {
     );
 
     if (sysUser) {
-      const match = password === sysUser.password || (sysUser.altPassword && password === sysUser.altPassword);
+      let match = password === sysUser.password || (sysUser.altPassword && password === sysUser.altPassword);
+      if (!match && env.DB) {
+        try {
+          const dbRow = await env.DB.prepare("SELECT password_hash FROM users WHERE id = ? OR LOWER(email) = LOWER(?)").bind(sysUser.id, rawEmail).first();
+          if (dbRow && dbRow.password_hash && dbRow.password_hash !== "sys") {
+            const [salt, expectedHash] = String(dbRow.password_hash).split(":");
+            if (salt && expectedHash) {
+              const actualHash = await sha256Hex(`${salt}:${password}`);
+              if (actualHash === expectedHash) {
+                match = true;
+              }
+            }
+          }
+        } catch {}
+      }
+
       if (!match) {
         return json(request, env, 401, { error: "Invalid email/username or password." });
       }
@@ -1025,9 +1298,7 @@ async function handleAuth(request, env, supabase) {
       const { token, csrfToken } = await createWorkerSession(safeUser, env);
 
       if (env.DB) {
-        env.DB.prepare("INSERT OR REPLACE INTO users (id, name, email, username, password_hash, role, phone_number, bio, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(sysUser.id, sysUser.name, sysUser.email, sysUser.username, "sys", sysUser.role, sysUser.phoneNumber, sysUser.bio, Date.now(), Date.now())
-          .run().catch(() => {});
+        env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(Date.now(), sysUser.id).run().catch(() => {});
       }
 
       return json(request, env, 200, { user: safeUser, token, csrfToken });
@@ -1341,12 +1612,12 @@ async function handleAuth(request, env, supabase) {
 
   // 9. FORGOT PASSWORD
   if (action === "forgot_password") {
-    return json(request, env, 200, { message: "If an account exists, a reset link has been sent to your email." });
+    return await handleForgotPassword(body, request, env, supabase);
   }
 
   // 10. RESET PASSWORD
   if (action === "reset_password") {
-    return json(request, env, 200, { message: "Password reset successfully. You may now log in." });
+    return await handleResetPassword(body, request, env, supabase);
   }
 
   // Fallback to proxyNetlify if configured
