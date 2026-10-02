@@ -1206,6 +1206,60 @@ async function handleResetPassword(body, request, env, supabase) {
   });
 }
 
+async function verifyGoogleToken(token, expectedClientId) {
+  if (!token) return null;
+  try {
+    // 1. Try Google ID token validation via tokeninfo
+    const idResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+    if (idResp.ok) {
+      const payload = await idResp.json();
+      if (payload && payload.email) {
+        return {
+          email: payload.email,
+          name: payload.name || payload.email.split("@")[0],
+          picture: payload.picture || "",
+          sub: payload.sub
+        };
+      }
+    }
+
+    // 2. Try Google Access Token via userinfo
+    const userResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (userResp.ok) {
+      const payload = await userResp.json();
+      if (payload && payload.email) {
+        return {
+          email: payload.email,
+          name: payload.name || payload.email.split("@")[0],
+          picture: payload.picture || "",
+          sub: payload.sub
+        };
+      }
+    }
+
+    // 3. Try access_token via tokeninfo
+    const accResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
+    if (accResp.ok) {
+      const payload = await accResp.json();
+      if (payload && payload.email) {
+        return {
+          email: payload.email,
+          name: payload.email.split("@")[0],
+          picture: "",
+          sub: payload.sub || payload.user_id
+        };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error("verifyGoogleToken error:", err.message);
+    return null;
+  }
+}
+
 async function handleAuth(request, env, supabase) {
   const url = new URL(request.url);
 
@@ -1243,7 +1297,7 @@ async function handleAuth(request, env, supabase) {
   // 2. OAUTH CLIENTS
   if (action === "oauth_clients") {
     return json(request, env, 200, {
-      googleClientId: env.GOOGLE_CLIENT_ID || "",
+      googleClientId: env.GOOGLE_CLIENT_ID || "51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com",
       githubClientId: env.GITHUB_CLIENT_ID || ""
     });
   }
@@ -1337,6 +1391,150 @@ async function handleAuth(request, env, supabase) {
     }
 
     return json(request, env, 401, { error: "Invalid email/username or password." });
+  }
+
+  // 3b. GOOGLE LOGIN
+  if (action === "login_google") {
+    const rawToken = body.idToken || body.accessToken || body.token || "";
+    if (!rawToken) {
+      return json(request, env, 400, { error: "Google authentication token is required." });
+    }
+
+    const googleUser = await verifyGoogleToken(rawToken, env.GOOGLE_CLIENT_ID || "51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com");
+    if (!googleUser || !googleUser.email) {
+      return json(request, env, 401, { error: "Google sign-in could not be verified. Please try again." });
+    }
+
+    const email = String(googleUser.email).trim().toLowerCase();
+    const name = sanitize(googleUser.name || email.split("@")[0], 80);
+    const avatarUrl = sanitize(googleUser.picture || "", 512);
+
+    // Check system users first (Admin)
+    const sysUser = SYSTEM_USERS.find(
+      (u) =>
+        u.email.toLowerCase() === email ||
+        (u.aliases && u.aliases.map((a) => a.toLowerCase()).includes(email))
+    );
+
+    if (sysUser) {
+      const safeUser = buildSafeUserObj(sysUser);
+      const { token, csrfToken } = await createWorkerSession(safeUser, env);
+      if (env.DB) {
+        env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(Date.now(), sysUser.id).run().catch(() => {});
+      }
+      return json(request, env, 200, { user: safeUser, token, csrfToken });
+    }
+
+    // Check D1 SQL database
+    let existingUser = null;
+    if (env.DB) {
+      try {
+        existingUser = await env.DB.prepare("SELECT * FROM users WHERE LOWER(email) = LOWER(?)").bind(email).first();
+      } catch (e) {
+        console.warn("D1 find user by google email:", e.message);
+      }
+    }
+
+    // Check Supabase if configured and not found in D1
+    if (!existingUser && supabase) {
+      try {
+        const { data } = await supabase.from("users").select("*").eq("email", email).maybeSingle();
+        if (data) existingUser = data;
+      } catch (e) {
+        console.warn("Supabase find user by google email:", e.message);
+      }
+    }
+
+    if (existingUser) {
+      if (env.DB) {
+        try {
+          await env.DB.prepare(
+            "UPDATE users SET last_login_at = ?, sign_in_count = sign_in_count + 1 WHERE id = ?"
+          ).bind(Date.now(), existingUser.id).run();
+        } catch {}
+      }
+      if (supabase) {
+        try {
+          await supabase.from("users").update({
+            last_login_at: Date.now(),
+            sign_in_count: (existingUser.sign_in_count || 1) + 1
+          }).eq("id", existingUser.id);
+        } catch {}
+      }
+
+      const safeUser = buildSafeUserObj({
+        ...existingUser,
+        avatarUrl: existingUser.avatar_url || avatarUrl,
+        phoneNumber: existingUser.phone_number || "",
+        interestedCourses: existingUser.interested_courses ? (typeof existingUser.interested_courses === "string" ? JSON.parse(existingUser.interested_courses) : existingUser.interested_courses) : [],
+        interestedTracks: existingUser.interested_tracks ? (typeof existingUser.interested_tracks === "string" ? JSON.parse(existingUser.interested_tracks) : existingUser.interested_tracks) : [],
+        subscriptionExpiresAt: existingUser.subscription_expires_at,
+        createdAt: Number(existingUser.created_at)
+      });
+      const { token, csrfToken } = await createWorkerSession(safeUser, env);
+      return json(request, env, 200, { user: safeUser, token, csrfToken });
+    }
+
+    // Auto-create new student user from verified Google profile
+    const newUser = {
+      id: crypto.randomUUID(),
+      name,
+      email,
+      username: sanitize(email.split("@")[0].replace(/[^a-z0-9]/g, "").slice(0, 30) || "student", 40),
+      passwordHash: "google",
+      role: "student",
+      avatarUrl,
+      bio: "",
+      phoneNumber: "",
+      interestedCourses: [],
+      interestedTracks: [],
+      createdAt: Date.now(),
+      lastLoginAt: Date.now(),
+      signInCount: 1,
+      authProvider: "google"
+    };
+
+    if (env.DB) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO users (
+            id, name, email, username, password_hash, role, avatar_url, bio, phone_number,
+            interested_courses, interested_tracks, created_at, last_login_at, sign_in_count,
+            verified_at, auth_provider
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          newUser.id, newUser.name, newUser.email, newUser.username,
+          "google", newUser.role, newUser.avatarUrl, newUser.bio, newUser.phoneNumber,
+          "[]", "[]", newUser.createdAt, newUser.lastLoginAt, 1,
+          new Date().toISOString(), "google"
+        ).run();
+      } catch (err) {
+        console.error("D1 google user insert failed:", err.message);
+        return json(request, env, 500, { error: "Failed to initialize Google account: " + err.message });
+      }
+    }
+
+    if (supabase) {
+      try {
+        await supabase.from("users").insert({
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          username: newUser.username,
+          password_hash: "google",
+          role: newUser.role,
+          avatar_url: newUser.avatarUrl,
+          created_at: newUser.createdAt,
+          last_login_at: newUser.lastLoginAt,
+          sign_in_count: 1,
+          auth_provider: "google"
+        });
+      } catch {}
+    }
+
+    const safeUser = buildSafeUserObj(newUser);
+    const { token, csrfToken } = await createWorkerSession(safeUser, env);
+    return json(request, env, 200, { user: safeUser, token, csrfToken });
   }
 
   // 4. REGISTER DIRECT

@@ -42,6 +42,7 @@
     "AUTH_BACKEND_URL": "https://jocular-malabi-812ccf.netlify.app",
     "AUTH_ALLOWED_ORIGIN": "https://kfahad.com,https://www.kfahad.com,https://kfahad-com.amdernpropertiessmclimited.workers.dev",
     "ALLOWED_ORIGIN": "https://kfahad.com,https://www.kfahad.com,https://kfahad-com.amdernpropertiessmclimited.workers.dev",
-    "APP_URL": "https://kfahad.com"
+    "APP_URL": "https://kfahad.com",
+    "GOOGLE_CLIENT_ID": "51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com"
   }
 }

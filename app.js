@@ -3229,79 +3229,110 @@ async function onPaymentSuccess(plan,txData,account,provider,planId){
 // ================================================================
 // AUTH PAGES
 // ================================================================
-let googleClientId = '';
+let googleClientId = '51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com';
 let githubClientId = '';
 async function loadOAuthClientIds(){
   try{
     const data = await postAuthApi({action:'oauth_clients'});
-    googleClientId = data.googleClientId || '';
+    googleClientId = data.googleClientId || '51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com';
     githubClientId = data.githubClientId || '';
   }catch{ 
-    googleClientId = '';
+    googleClientId = '51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com';
     githubClientId = '';
   }
 }
 function loadGoogleScript(){
   return new Promise((resolve) => {
-    if(window.google?.accounts?.id){ resolve(); return; }
+    if(window.google?.accounts){ resolve(); return; }
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if(existing){
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', resolve, { once: true });
+      return;
+    }
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
     script.onload = resolve;
     script.onerror = resolve;
     document.head.appendChild(script);
   });
 }
-async function doGoogleLogin(){
+
+async function triggerGoogleAuth({ isRegister = false } = {}){
   if(!googleClientId){ await loadOAuthClientIds(); }
-  if(!googleClientId){ toast('Google sign-in is not configured.','error'); return; }
+  if(!googleClientId){
+    googleClientId = '51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com';
+  }
+  toast('Connecting to Google...', 'info');
   await loadGoogleScript();
-  if(!window.google?.accounts?.id){ toast('Google sign-in is temporarily unavailable.','error'); return; }
-  try{
-    const resp = await new Promise((resolve, reject) => {
-      window._googleResolver = resolve;
-      window.google.accounts.id.initialize({
+  if(!window.google?.accounts){
+    toast('Google sign-in is temporarily unavailable. Please try again.', 'error');
+    return;
+  }
+
+  async function handleGoogleSuccess(payload){
+    try {
+      toast('Signing you in...', 'info');
+      const data = await postAuthApi({ action: 'login_google', ...payload });
+      const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
+      const greeting = isRegister
+        ? `Welcome to KFAHAD Academy, ${user.name.split(' ')[0]}! 🎉`
+        : `Welcome, ${user.name.split(' ')[0]}! 👋`;
+      toast(greeting, 'success');
+      if (user.role === 'admin') showAdmin('overview');
+      else showDashboard(user.role === 'student' ? 'my-learning' : 'overview');
+    } catch(err) {
+      toast(err.message || 'Google sign-in failed. Please try again.', 'error');
+    }
+  }
+
+  // Method 1: OAuth2 Token Client (opens Google popup immediately without One-Tap cooldown restrictions)
+  if (window.google.accounts.oauth2) {
+    try {
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: googleClientId,
-        callback: (response) => {
-          if(response?.credential) resolve(response.credential);
-          else reject(new Error('No credential returned'));
+        scope: 'email profile openid',
+        callback: async (tokenResp) => {
+          if (tokenResp.error) {
+            if (tokenResp.error !== 'access_denied') {
+              toast('Google sign-in was cancelled or encountered an error.', 'error');
+            }
+            return;
+          }
+          if (tokenResp.access_token) {
+            await handleGoogleSuccess({ accessToken: tokenResp.access_token });
+          }
         }
       });
-      window.google.accounts.id.prompt();
+      tokenClient.requestAccessToken({ prompt: 'select_account' });
+      return;
+    } catch (tokenErr) {
+      console.warn('OAuth2 token client fallback:', tokenErr);
+    }
+  }
+
+  // Method 2: Google One Tap / Credential prompt (Fallback)
+  if (window.google.accounts.id) {
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: async (resp) => {
+        if (resp?.credential) {
+          await handleGoogleSuccess({ idToken: resp.credential });
+        }
+      }
     });
-    const data = await postAuthApi({action:'login_google', idToken: resp});
-    const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
-    toast(`Welcome, ${user.name.split(' ')[0]}! 👋`,'success');
-    if(user.role==='admin') showAdmin('overview');
-    else showDashboard(user.role==='student'?'my-learning':'overview');
-  }catch(error){
-    toast(error.message || 'Google sign-in failed.','error');
+    window.google.accounts.id.prompt();
   }
 }
+
+async function doGoogleLogin(){
+  await triggerGoogleAuth({ isRegister: false });
+}
+
 async function doGoogleRegister(){
-  if(!googleClientId){ await loadOAuthClientIds(); }
-  if(!googleClientId){ toast('Google sign-in is not configured.','error'); return; }
-  await loadGoogleScript();
-  if(!window.google?.accounts?.id){ toast('Google sign-in is temporarily unavailable.','error'); return; }
-  try{
-    const resp = await new Promise((resolve, reject) => {
-      window._googleResolver = resolve;
-      window.google.accounts.id.initialize({
-        client_id: googleClientId,
-        callback: (response) => {
-          if(response?.credential) resolve(response.credential);
-          else reject(new Error('No credential returned'));
-        }
-      });
-      window.google.accounts.id.prompt();
-    });
-    const data = await postAuthApi({action:'login_google', idToken: resp});
-    const user = setAuthenticatedUser(data.user, data.token, data.csrfToken);
-    toast(`Welcome to KFAHAD Academy, ${user.name.split(' ')[0]}! 🎉`,'success');
-    if(user.role==='admin') showAdmin('overview');
-    else showDashboard(user.role==='student'?'my-learning':'overview');
-  }catch(error){
-    toast(error.message || 'Google sign-in failed.','error');
-  }
+  await triggerGoogleAuth({ isRegister: true });
 }
 async function doGithubLogin(){
   if(!githubClientId){ await loadOAuthClientIds(); }

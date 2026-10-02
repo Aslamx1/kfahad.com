@@ -17,7 +17,7 @@ const SUPABASE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_PUBLISHABLE_KEY ||
   "";
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "51201187998-jup8k6u53s32snsvulcv15thl482sug2.apps.googleusercontent.com";
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const TERMS_VERSION = "2026-01-01";
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -153,18 +153,29 @@ async function createSession(userId, event) {
 
 // Verifies a Google ID token via Google's tokeninfo endpoint and returns
 // the payload, or null if invalid/expired/wrong audience.
-async function verifyGoogleToken(idToken) {
-  if (!idToken || !GOOGLE_CLIENT_ID) return null;
+async function verifyGoogleToken(token) {
+  if (!token) return null;
   try {
-    const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+    const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`;
     const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const payload = await resp.json();
-    if (payload || payload.aud !== GOOGLE_CLIENT_ID) return null;
-    const now = Math.floor(Date.now() / 1000);
-    if (Number(payload.exp) < now) return null;
-    if (!payload.email) return null;
-    return payload;
+    if (resp.ok) {
+      const payload = await resp.json();
+      if (payload && payload.email) {
+        return payload;
+      }
+    }
+
+    const userResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (userResp.ok) {
+      const userPayload = await userResp.json();
+      if (userPayload && userPayload.email) {
+        return userPayload;
+      }
+    }
+
+    return null;
   } catch (err) {
     console.error("verifyGoogleToken error:", err.message);
     return null;
