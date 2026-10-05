@@ -2409,8 +2409,8 @@ function renderHomePage(){
   <section class="hero">
     <div class="container hero-inner">
       <div class="fade-up"><span class="tag">🇺🇬 Uganda's Online Academy</span></div>
-      <h1 class="fade-up">Unlock Your Potential with a Powerful Learning Platform</h1>
-      <p class="fade-up">KFAHAD Academy provides a comprehensive, all-in-one LMS solution to deliver engaging training, manage learners, and track progress.</p>
+      <h1 class="fade-up">Unlock Your Potential With Skills That Matter</h1>
+      <p class="fade-up" style="max-width:620px">Build the knowledge, skills, and mindset to navigate life, work, money, technology, and yourself with greater clarity and competence.<br><span style="display:inline-block;margin-top:12px;font-weight:700;color:var(--txt);letter-spacing:0.04em">Learn. Apply. Become.</span></p>
       <div class="hero-btns fade-up">
         <button class="btn btn-primary btn-lg" onclick="${currentUser?`showDashboard()`:`showPublicPage('register-page')`}">Get Started</button>
         <button class="btn btn-outline btn-lg" onclick="showPublicPage('pricing-page')">See Pricing</button>
@@ -2448,15 +2448,58 @@ function renderHomePage(){
   <!-- FEATURES -->
   <section style="padding:72px 0;background:var(--bg2)">
     <div class="container">
-      <div class="features-grid">
-        <div>
-          <div class="section-head"><span class="tag">Why Choose Us</span><h2>Everything for Great Learning</h2></div>
-          <div class="feat-item fade-up"><div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16l4-4 4 4 4-8"/></svg></div><div><h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Offer courses, webinars, or classes</h4><p style="color:var(--muted);font-size:.88rem">Deliver eLearning using self-paced courses, live webinars, or in-person classes.</p></div></div>
-          <div class="feat-item fade-up"><div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 8V4m0 0h4M4 4l5 5M20 8V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5M20 16v4m0 0h-4m4 0l-5-5"/></svg></div><div><h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Easy-to-use, powerful platform</h4><p style="color:var(--muted);font-size:.88rem">Manage learning programs of all sizes with our accessible LMS.</p></div></div>
-          <div class="feat-item fade-up"><div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div><h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Personalized learning paths</h4><p style="color:var(--muted);font-size:.88rem">Students get custom recommendations and progress tracking across all courses.</p></div></div>
-          <div style="padding-left:62px"><button class="btn btn-primary btn-lg" onclick="showPublicPage('pricing-page')">See Pricing</button></div>
+      <div class="section-head center fade-up">
+        <span class="tag">Why Choose Kfahad Academy</span>
+        <h2>Why Choose Kfahad Academy?</h2>
+        <p style="max-width:640px;margin:0 auto">Learning shouldn't stop when the video ends. We built the academy around a simple idea: knowledge becomes valuable when you can apply it.</p>
+      </div>
+      <div class="features-grid-cards">
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Learn at Your Own Pace</h4>
+            <p style="color:var(--muted);font-size:.88rem">Explore a growing library of practical courses designed to build knowledge and real world skills.</p>
+          </div>
         </div>
-        <div class="feat-img-box"><svg fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Learn Live</h4>
+            <p style="color:var(--muted);font-size:.88rem">Go beyond recorded lessons with live courses, interactive sessions, and direct engagement.</p>
+          </div>
+        </div>
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Put Yourself to the Test</h4>
+            <p style="color:var(--muted);font-size:.88rem">Take on monthly challenges designed to turn what you learn into action.</p>
+          </div>
+        </div>
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Go Deeper</h4>
+            <p style="color:var(--muted);font-size:.88rem">Access our knowledge base for additional resources, insights, and material to keep learning beyond your courses.</p>
+          </div>
+        </div>
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Get Personal Guidance</h4>
+            <p style="color:var(--muted);font-size:.88rem">Book appointments when you need focused, one to one guidance rather than another generic lesson.</p>
+          </div>
+        </div>
+        <div class="feat-card feat-item fade-up">
+          <div class="feat-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></div>
+          <div>
+            <h4 style="font-family:var(--font-h);font-weight:700;margin-bottom:6px">Stay Connected</h4>
+            <p style="color:var(--muted);font-size:.88rem">Use the academy's chat to ask questions, exchange ideas, and connect with the learning community.</p>
+          </div>
+        </div>
+      </div>
+      <div class="fade-up" style="text-align:center;margin-top:36px">
+        <p style="font-family:var(--font-h);font-size:1.25rem;font-weight:800;color:var(--txt);margin-bottom:18px">Don't just consume knowledge. Use it.</p>
+        <button class="btn btn-primary btn-lg" onclick="showPublicPage('pricing-page')">See Pricing</button>
       </div>
     </div>
   </section>
@@ -2493,8 +2536,8 @@ function renderHomePage(){
   <!-- CTA -->
   <section class="cta-section">
     <div class="container">
-      <h2>Ready to Take Your Training to the Next Level?</h2>
-      <p>Join learners across Uganda and take the next step in your career.</p>
+      <h2>Ready to Become More Capable?</h2>
+      <p style="max-width:540px;margin:0 auto 28px">The knowledge is here. The tools are here. The next step is yours.<br><strong style="display:inline-block;margin-top:10px;font-size:1.05rem;letter-spacing:0.03em">Learn. Apply. Become.</strong></p>
       <button class="btn-white" onclick="${currentUser?`showDashboard()`:`showPublicPage('register-page')`}">Get Started Free</button>
     </div>
   </section>
